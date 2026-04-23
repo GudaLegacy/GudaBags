@@ -1196,12 +1196,28 @@ local function CheckMerchantSellBlock(btn, mouseButton)
 end
 
 -- Unregister the button's clicks so the pending OnClick does NOT fire for
--- this mouse release, then re-register next frame. This is the mechanism we
--- use to "cancel" a specific click without SetScript("OnClick") which would
--- taint the secure inherited handler. Exposed as a global so the quest/tracked
--- bars can reuse it for their own Alt+Click behaviors.
+-- this mouse release, then re-register next frame. Used to "cancel" a
+-- specific click without SetScript("OnClick"), which would taint the
+-- inherited secure handler.
+--
+-- Scope: WORKS for buttons that inherit ContainerFrameItemButtonTemplate
+-- only (Guda_ItemButton* in the bag/bank pool) — those use Lua-level
+-- OnClick dispatch, so clearing the click registration skips the handler.
+--
+-- DOES NOT WORK for buttons that inherit SecureActionButtonTemplate
+-- (Guda_TrackedItemBarButton*, Guda_QuestItemBarButton*,
+-- Guda_BagFrame_HearthstoneFrame). The secure engine dispatch reads the
+-- `type` attribute and the hardware click event directly — it is not
+-- gated by RegisterForClicks. Those buttons must use PreClick/PostClick
+-- attribute gating (see TrackedItemBar:CreateSlotButton /
+-- QuestItemBar:CreateSlotButton for the reference implementation,
+-- mirroring the original GudaBags per RULES.md Rule 0).
+--
+-- Combat note: RegisterForClicks on a protected frame is forbidden during
+-- combat. We skip silently when in combat.
 function Guda_SuppressNextClick(btn)
     if not (btn and btn.RegisterForClicks) then return end
+    if InCombatLockdown and InCombatLockdown() then return end
     btn:RegisterForClicks()
     if Guda_ScheduleTimer then
         Guda_ScheduleTimer(0, function()

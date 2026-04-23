@@ -137,9 +137,32 @@ function TrackedItemBar:CreateSlotButton(parent, i)
     button:RegisterForDrag("LeftButton")
     button:SetScript("OnDragStart", function() end)
     button:SetScript("OnReceiveDrag", function() end)
-    -- OnMouseDown handles two intercepts for the secure OnClick:
-    --   * Alt+Left-Click: untrack (must suppress so the item isn't used)
-    --   * Shift+Left-Click: start moving the bar
+
+    -- PreClick gates the secure type="item" dispatcher BEFORE it fires.
+    -- If any modifier is held (Shift for drag, Alt for untrack, Ctrl reserved)
+    -- we clear `type` so the dispatcher is a no-op for this click; PostClick
+    -- restores `type="item"` so subsequent plain clicks still use the item.
+    -- This is the mechanism the original GudaBags uses (see RULES.md Rule 0),
+    -- and the reason the earlier `Guda_SuppressNextClick` approach didn't
+    -- work: RegisterForClicks only gates Lua OnClick delivery, not the
+    -- SecureActionButton engine dispatch which reads `type` + hardware event
+    -- directly.
+    button:SetScript("PreClick", function()
+        if InCombatLockdown and InCombatLockdown() then return end
+        if IsShiftKeyDown() or IsAltKeyDown() or IsControlKeyDown() then
+            this:SetAttribute("type", nil)
+        else
+            this:SetAttribute("type", "item")
+        end
+    end)
+    button:SetScript("PostClick", function()
+        if InCombatLockdown and InCombatLockdown() then return end
+        this:SetAttribute("type", "item")
+    end)
+
+    -- OnMouseDown still runs the drag + untrack side effects. PreClick
+    -- above blocks the secure item-use so we do NOT need to call
+    -- Guda_SuppressNextClick here anymore.
     button:SetScript("OnMouseDown", function()
         if arg1 ~= "LeftButton" then return end
 
@@ -151,9 +174,6 @@ function TrackedItemBar:CreateSlotButton(parent, i)
                 Guda.Modules.BagFrame:Update()
             end
             TrackedItemBar:Update()
-            if Guda_SuppressNextClick then
-                Guda_SuppressNextClick(this)
-            end
             return
         end
 

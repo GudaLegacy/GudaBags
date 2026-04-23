@@ -177,9 +177,29 @@ function QuestItemBar:CreateSlotButton(parent, i)
     button:RegisterForDrag("LeftButton")
     button:SetScript("OnDragStart", function() end)
     button:SetScript("OnReceiveDrag", function() end)
-    -- OnMouseDown handles two intercepts before the secure OnClick:
-    --   * Alt+Right-Click: unpin this slot (must suppress so the secure
-    --     dispatcher doesn't ALSO use the item on the now-unpinned slot)
+    -- PreClick gates the secure type="item" dispatcher BEFORE it fires.
+    -- If any modifier is held (Shift for drag, Alt for unpin) we clear
+    -- `type` so the dispatcher is a no-op for this click; PostClick
+    -- restores `type="item"` for the next plain click. This mirrors the
+    -- original GudaBags (see RULES.md Rule 0) and is the correct mechanism
+    -- — RegisterForClicks-based suppression does NOT gate secure engine
+    -- dispatch on SecureActionButton.
+    button:SetScript("PreClick", function()
+        if InCombatLockdown and InCombatLockdown() then return end
+        if IsShiftKeyDown() or IsAltKeyDown() or IsControlKeyDown() then
+            this:SetAttribute("type", nil)
+        else
+            this:SetAttribute("type", "item")
+        end
+    end)
+    button:SetScript("PostClick", function()
+        if InCombatLockdown and InCombatLockdown() then return end
+        this:SetAttribute("type", "item")
+    end)
+
+    -- OnMouseDown handles our side effects (unpin, drag start). PreClick
+    -- above blocks the secure item-use, so no Guda_SuppressNextClick needed.
+    --   * Alt+Right-Click: unpin this slot
     --   * Shift+Left-Click: start moving the bar
     -- Default left/right-click without modifiers falls through to the
     -- secure dispatcher (type="item") and uses the item.
@@ -191,9 +211,6 @@ function QuestItemBar:CreateSlotButton(parent, i)
                 pins[slot] = nil
                 addon.Modules.DB:SetSetting("questBarPinnedItems", pins)
                 QuestItemBar:Update()
-            end
-            if Guda_SuppressNextClick then
-                Guda_SuppressNextClick(this)
             end
             return
         end
