@@ -1,8 +1,19 @@
-# Guda
+# GudaBags
 
-A comprehensive **bag and bank management addon** for **World of Warcraft 1.12.1**, fully compatible with **Turtle WoW**.
+A comprehensive **bag and bank management addon** for **World of Warcraft 3.3.5a (WotLK)**, targeted at the **Ascension Epoch** private server.
 
-Guda provides a modern, unified bag/bank experience with multi-character support, sorting, item tracking, and quality-of-life tools.
+GudaBags provides a modern, unified bag/bank experience with multi-character support, sorting, item tracking, and quality-of-life tools. It is a port of the original Guda addon (built for Turtle WoW 1.12.1) adapted for 3.3.5a's client.
+
+---
+
+## 📦 Installation
+
+1. Close the WoW client.
+2. Copy the `GudaBags` folder into `Interface/AddOns/` of your Ascension Epoch install (e.g. `...\Ascension\resources\epoch-live\Interface\AddOns\GudaBags\`).
+3. Launch the client and enable **GudaBags** in the AddOns list at the character-select screen.
+4. Log in and type `/guda` — you should see `Loaded v…` in chat.
+
+The TOC declares `## Interface: 30300` and is intended to run on 3.3.5a only. The 1.12 original lives in a separate `Guda` addon and is unaffected.
 
 ---
 
@@ -13,7 +24,7 @@ Guda provides a modern, unified bag/bank experience with multi-character support
 - **Unified Bag View** – All bags displayed in one window
 - **Category View** – Group items by category for easier organization
 - **Smart Sorting** – Sort by quality, name, or item type
-- **Search Box** – Quickly find items
+- **Search Box** – Quickly find items (name, `~equipment`/`~consumable`/... category shortcuts, or `~t:<text>` tooltip search)
 - **Quality Borders** – Items are visually color-coded based on rarity
 
 ### 🏦 Bank Management
@@ -58,39 +69,27 @@ Guda provides a modern, unified bag/bank experience with multi-character support
 - **Total Money Across All Characters**
 - **Per-Character Overview** in the selector
 
-### 🔗 Cross-Account Sharing (Optional)
-
-Share character data (gold, bags, bank, mail, equipped items) between different WoW accounts on the same PC. Requires the companion [GudaIO](https://github.com/vatichild/GudaIO) DLL.
-
-**How it works:**
-- GudaIO runs once when the game starts, before the login screen appears
-- It reads each account's saved character data from `WTF/Account/*/SavedVariables/Guda.lua`
-- It merges them into a single file (`GudaShared.lua`) that the addon loads automatically
-- Characters from other accounts appear in the gold tooltip, inventory counts, and character dropdowns, separated by account
-- The DLL does nothing after startup — no hooks, no background threads, no memory patches
-
-**Setup:**
-1. Download `GudaIO.dll` from [GudaIO releases](https://github.com/vatichild/GudaIO/releases)
-2. Place it in your TurtleWoW folder (next to `WoW.exe`)
-3. Add `GudaIO.dll` on a new line in `dlls.txt`
-4. Log into each account at least once and log out properly
-5. Restart the game — all accounts will see each other's characters
-
-Without the DLL, the addon works normally with single-account data only. No errors or crashes.
-
 ---
 
 ## 📝 Slash Commands
 
 | Command | Description |
 |---------|-------------|
-| `/guda` or `/gn` | Toggle bags |
+| `/guda` | Toggle bags |
 | `/guda bank` | Toggle bank view |
+| `/guda mail` | Toggle mailbox view |
 | `/guda sort` | Sort your bags |
-| `/guda sortbank` | Sort your bank (must be at bank) |
-| `/guda debug` | Toggle debug mode |
+| `/guda sortbank` | Sort your bank (must be at a bank) |
+| `/guda settings` | Open the settings window |
+| `/guda openclams` | Open all clams in your bags |
+| `/guda quest` | Toggle the quest-item bar |
+| `/guda track` | Toggle the tracked-item bar |
 | `/guda cleanup` | Remove characters not seen in 90 days |
+| `/guda perf` | Show cache / button-pool performance stats |
+| `/guda debug` | Toggle debug logging in chat |
+| `/guda diag` | Print a runtime diagnostic (container state, pool stats, scanner health) |
 | `/guda help` | Show help |
+| `/gudatheme` | Switch between Guda / Blizzard themes |
 
 ---
 
@@ -98,10 +97,10 @@ Without the DLL, the addon works normally with single-account data only. No erro
 
 ### Basic Usage
 
-1. Press **B** or type `/guda` to open your bags
-2. Click **Characters** to switch characters
-3. Click **Bank** to view your cached bank
-4. Click **Sort** to organize your bags
+1. Press **B** or type `/guda` to open your bags.
+2. Click **Characters** (top-left icon) to switch characters.
+3. Click **Bank** to view your cached bank.
+4. Click **Sort** to organize your bags.
 
 ### Sorting
 
@@ -124,8 +123,6 @@ Without the DLL, the addon works normally with single-account data only. No erro
 3. The item appears in the Tracked Item Bar with total count
 4. Use **Shift + Left-Click** on the bar to drag it to your preferred location
 
-![Tracked Item Bar](https://github.com/user-attachments/assets/81a2a86f-f35e-4437-ae89-906ade98716d)
-
 ### Quest Item Bar
 
 1. Quest items automatically appear in the Quest Item Bar
@@ -134,7 +131,6 @@ Without the DLL, the addon works normally with single-account data only. No erro
 4. Click a popup item to swap it into that slot
 5. Use **Shift + Left-Click** on the bar to drag it to your preferred location
 
-![Quest Item Bar](https://i.imgur.com/orMsS06.png)
 ---
 
 ## 🧠 Internal Systems
@@ -165,22 +161,14 @@ Without the DLL, the addon works normally with single-account data only. No erro
 
 ---
 
-
 ## ⚠️ Known Limitations
 
 | Area | Limitation |
 |------|------------|
-| Sorting | Advanced sorting requires handling bag restrictions (soul bags, profession bags). Locked and soulbound items need special handling. |
-| Bank Access | Must open the bank at least once to cache contents |
-| Faction Restriction | Only shows characters from the same faction |
-
----
-
-## 🖼️ Screenshots
-
-| Guda Settings | Bag Single View                          | Bag Category View                  | Bank View                                    |
-|---------------|------------------------------------------|------------------------------------|----------------------------------------------|
-| ![Settings](https://github.com/user-attachments/assets/9ab1b985-1280-4c14-a733-3a1fffdaa7e4) | ![Bags](https://github.com/user-attachments/assets/1150de97-7db7-4267-b1cd-99c6267c4669) | ![Category](https://github.com/user-attachments/assets/825ada16-da49-400e-8b1b-4ae203786f0f) | ![Bank](https://github.com/user-attachments/assets/7a198526-85c8-4309-abeb-c2031645d828)     |
+| Sorting | Advanced sorting respects bag restrictions (soul bags, profession bags). Locked and soulbound items need special handling. |
+| Bank Access | Must open the bank at least once to cache contents. |
+| Faction Restriction | Only shows characters from the same faction. |
+| Cross-Account Sharing | The optional GudaIO DLL is Turtle-WoW-specific and has no 3.3.5a equivalent; account data stays single-account on Ascension. |
 
 ---
 
@@ -190,19 +178,45 @@ Without the DLL, the addon works normally with single-account data only. No erro
 
 Set the keybinding: **Esc → Key Bindings → Guda → Toggle Bags**
 
-![Keybindings Fix](https://i.imgur.com/IJv36Lg.png)
+### Silent issues / blank UI
+
+Force Lua errors to surface and run the diagnostic:
+
+```
+/console scriptErrors 1
+/guda debug
+/guda diag
+```
+
+`/guda diag` prints the state of the bag frame, item container, button pool, and scanner to chat. If item slots are empty, watch for `BagFrame:Update() ERRORED:` lines — they pinpoint the failing call.
 
 ### Issues after updating the addon
 
 Delete outdated saved variables:
 
 ```
-WTF/Account/<ACCOUNT_NAME>/SavedVariables/Guda.lua
-WTF/Account/<ACCOUNT_NAME>/SavedVariables/Guda.lua.bak
+WTF/Account/<ACCOUNT_NAME>/SavedVariables/Guda_DB.lua
+WTF/Account/<ACCOUNT_NAME>/SavedVariables/Guda_DB.lua.bak
+WTF/Account/<ACCOUNT_NAME>/<REALM>/<CHARACTER>/SavedVariables/Guda_CharDB.lua
 ```
+
+---
+
+## 🔧 3.3.5a Port Notes
+
+This build contains compatibility fixes versus the Turtle-WoW 1.12 original, driven by Ascension Epoch's modernized Blizzard UI:
+
+- **ItemButton template** passes `this` explicitly to `ContainerFrameItemButton_OnLoad` / `ContainerFrameItemButton_OnClick` (Ascension uses `self`-parameter signatures, not the vanilla implicit `this`).
+- **UIDropDownMenu** calls use the modern `(frame, …)` argument order for `SetWidth` and `SetText`.
+- **FauxScrollFrame_OnVerticalScroll** calls pass `(this, arg1, itemHeight, updateFn)`.
+- **Varargs** (`Utils:SafeCall`) use native Lua 5.1 `...` forwarding instead of the legacy `arg` table, which isn't reliably populated on Ascension.
+- **Bag hooks** (`ToggleBackpack`, `OpenAllBags`, `CloseAllBags`, `OpenBag`, `ToggleBag`, plus `OpenBackpack`/`CloseBackpack`/`CloseBag`) are installed synchronously in `BagFrame:Initialize` instead of via a deferred `PLAYER_LOGIN` frame that never fired post-login.
+- **Event handler** guards invalid bag IDs before calling `ContainerIDToInventoryID`, which raises a hard error on out-of-range IDs rather than returning nil.
+- **ITEM_LOCK_CHANGED** in single view now triggers a lightweight `UpdateLockStates` directly instead of a throttled redraw that could be cancelled by a follow-up `BAG_UPDATE`, preventing the "stuck desaturated" look after successful swaps.
+- All asset paths were rewritten from `Interface\AddOns\Guda\...` to `Interface\AddOns\GudaBags\...`.
 
 ---
 
 ## 📢 Support
 
-For bugs or feature requests, please open an issue. Your feedback helps improve the addon!
+For bugs or feature requests, please open an issue. Your feedback helps improve the addon.
