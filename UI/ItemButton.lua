@@ -750,67 +750,34 @@ local function HidePinIcon(button)
 	end
 end
 
--- Hook UseContainerItem to prevent selling/disenchanting protected items
-local OriginalUseContainerItem = UseContainerItem
-UseContainerItem = function(bag, slot, ...)
-	local DB = addon.Modules.DB
-	if DB then
-		local link = GetContainerItemLink(bag, slot)
-		if link then
-			local Utils = addon.Modules.Utils
-			local itemID = Utils and Utils.ExtractItemID and Utils:ExtractItemID(link)
-			if itemID and DB:IsItemProtected(itemID) then
-				-- Block selling at merchant
-				if MerchantFrame and MerchantFrame:IsVisible() then
-					addon:Print(format(Guda_L["Cannot sell %s — item is protected"], link))
-					return
-				end
-				-- Block disenchant/milling/prospecting (spell targeting an item)
-				if SpellIsTargeting and SpellIsTargeting() then
-					SpellStopTargeting()
-					addon:Print(format(Guda_L["Cannot disenchant %s — item is protected"], link))
-					return
-				end
-			end
-		end
-	end
-	return OriginalUseContainerItem(bag, slot)
-end
-
--- Track cursor item for delete protection (GetCursorInfo doesn't exist in 1.12.1)
-local cursorProtectedLink = nil
-
-local OriginalPickupContainerItem = PickupContainerItem
-PickupContainerItem = function(bag, slot, ...)
-	local DB = addon.Modules.DB
-	if DB then
-		local link = GetContainerItemLink(bag, slot)
-		if link then
-			local Utils = addon.Modules.Utils
-			local itemID = Utils and Utils.ExtractItemID and Utils:ExtractItemID(link)
-			if itemID and DB:IsItemProtected(itemID) then
-				cursorProtectedLink = link
-			else
-				cursorProtectedLink = nil
-			end
-		else
-			cursorProtectedLink = nil
-		end
-	end
-	return OriginalPickupContainerItem(bag, slot)
-end
-
--- Hook delete confirmation popups
+-- Delete-popup protection for locked items.
+-- NOTE: On 3.3.5a, replacing UseContainerItem / PickupContainerItem globally
+-- taints every caller (including Blizzard's secure bag frames) and causes
+-- "GudaBags has been blocked from an action only available to the Blizzard UI"
+-- when clicking items that trigger spell casts (hearthstone, food/drink).
+-- Merchant-sell and spell-target protection are now handled inline in our
+-- own OnClick (see the Ctrl+Right-Click / SpellIsTargeting blocks below).
 local function HookDeletePopup(dialogName)
 	if not StaticPopupDialogs or not StaticPopupDialogs[dialogName] then return end
 	local originalOnShow = StaticPopupDialogs[dialogName].OnShow
 	StaticPopupDialogs[dialogName].OnShow = function()
-		if cursorProtectedLink then
-			addon:Print(format(Guda_L["Cannot delete %s — item is protected"], cursorProtectedLink))
-			ClearCursor()
-			cursorProtectedLink = nil
-			this:Hide()
-			return
+		local DB = addon.Modules.DB
+		local Utils = addon.Modules.Utils
+		if DB and GetCursorInfo then
+			local kind, itemID, itemLink = GetCursorInfo()
+			if kind == "item" then
+				local id = itemID
+				if not id and itemLink and Utils and Utils.ExtractItemID then
+					id = Utils:ExtractItemID(itemLink)
+				end
+				if id and DB:IsItemProtected(id) then
+					local displayLink = itemLink or ("item:" .. tostring(id))
+					addon:Print(format(Guda_L["Cannot delete %s — item is protected"], displayLink))
+					ClearCursor()
+					this:Hide()
+					return
+				end
+			end
 		end
 		if originalOnShow then
 			return originalOnShow()
@@ -1057,6 +1024,147 @@ local function Guda_ItemButton_UpdateQuestIcon(self, isQuest, isQuestStarter)
 	end
 end
 
+-- ===== Click-modifier handlers =====
+-- Extracted from the old SetScript("OnClick", ...) override because that
+-- override tainted the secure click path inherited from
+-- ContainerFrameItemButtonTemplate: calling UseContainerItem from our Lua
+-- handler taints the spell-cast path on Ascension 3.3.5a and produces
+-- "GudaBags has been blocked from an action only available to the Blizzard UI"
+-- on anything that casts (hearthstone, food, drink, bandages, etc).
+--
+-- The click wiring is now: OnMouseDown intercepts modifier combos and cases
+-- that must not fall through to the default click (cached items, drop targets,
+-- mail rows, protection blocks), suppressing the pending OnClick via a
+-- RegisterForClicks toggle. HookScript("OnClick", ...) handles behaviors that
+-- are safe to run AFTER the inherited secure OnClick (Alt+Left tracking,
+-- cursor-tracking for category drag-drop).
+
+local function HandleLockToggle(btn)
+    local link = GetContainerItemLink(btn.bagID, btn.slotID)
+    if not (link and addon and addon.Modules and addon.Modules.Utils and addon.Modules.DB) then return end
+    local itemID = addon.Modules.Utils:ExtractItemID(link)
+    if not itemID then return end
+
+    -- If item belongs to an equipment set, toggle the set-protection exception
+    if addon.Modules.DB:GetSetting("autoLockSetItems") then
+        local EquipSets = addon.Modules.EquipmentSets
+        if EquipSets and EquipSets.IsInSet and EquipSets:IsInSet(itemID) then
+            local isNowExcepted = addon.Modules.DB:ToggleSetProtectionException(itemID)
+            if isNowExcepted then
+                addon:Print(format(Guda_L["%s set protection removed"], link))
+            else
+                addon:Print(format(Guda_L["%s set protection restored"], link))
+            end
+            if addon.Modules.BagFrame and addon.Modules.BagFrame.Update then addon.Modules.BagFrame:Update() end
+            if addon.Modules.BankFrame and addon.Modules.BankFrame.Update then addon.Modules.BankFrame:Update() end
+            return
+        end
+    end
+
+    local isNowLocked = addon.Modules.DB:ToggleItemLock(itemID)
+    if isNowLocked then
+        addon:Print(format(Guda_L["%s locked"], link))
+    else
+        addon:Print(format(Guda_L["%s unlocked"], link))
+    end
+    if addon.Modules.BagFrame and addon.Modules.BagFrame.Update then addon.Modules.BagFrame:Update() end
+    if addon.Modules.BankFrame and addon.Modules.BankFrame.Update then addon.Modules.BankFrame:Update() end
+end
+
+local function HandlePinToggle(btn)
+    if btn.bagID == nil or btn.slotID == nil or not addon.Modules.DB then return end
+    local isNowPinned = addon.Modules.DB:TogglePinnedSlot(btn.bagID, btn.slotID)
+    local itemName = ""
+    if btn.hasItem and btn.itemData and btn.itemData.link then
+        itemName = " " .. btn.itemData.link
+    end
+    if isNowPinned then
+        addon:Print(format(Guda_L["Slot pinned %s (skipped during sort)"], itemName))
+    else
+        addon:Print(format(Guda_L["Slot unpinned %s"], itemName))
+    end
+    if addon.Modules.BagFrame and addon.Modules.BagFrame.Update then addon.Modules.BagFrame:Update() end
+    if addon.Modules.BankFrame and addon.Modules.BankFrame.Update then addon.Modules.BankFrame:Update() end
+end
+
+local function HandleAltLeftTrack(btn)
+    local link = GetContainerItemLink(btn.bagID, btn.slotID)
+    if not (link and addon and addon.Modules and addon.Modules.Utils) then return end
+    local itemID = addon.Modules.Utils:ExtractItemID(link)
+    if not itemID then return end
+
+    local isQuest = IsQuestItem(btn.bagID, btn.slotID, btn.isBank, btn.itemData)
+    local isUnique = addon.Modules.Utils:IsUniqueItem(btn.bagID, btn.slotID, link)
+
+    if isQuest and isUnique and addon.Modules.QuestItemBar and addon.Modules.QuestItemBar.PinItem then
+        addon.Modules.QuestItemBar:PinItem(itemID)
+        return
+    end
+
+    local trackedItems = addon.Modules.DB:GetSetting("trackedItems") or {}
+    if trackedItems[itemID] then
+        trackedItems[itemID] = nil
+    else
+        trackedItems[itemID] = true
+    end
+    addon.Modules.DB:SetSetting("trackedItems", trackedItems)
+
+    if Guda.Modules.BagFrame and Guda.Modules.BagFrame.Update then Guda.Modules.BagFrame:Update() end
+    if Guda.Modules.BankFrame and Guda.Modules.BankFrame.Update then Guda.Modules.BankFrame:Update() end
+    if Guda.Modules.TrackedItemBar and Guda.Modules.TrackedItemBar.Update then Guda.Modules.TrackedItemBar:Update() end
+end
+
+local function HandleCachedChatLink(btn)
+    local link = btn.itemData and btn.itemData.link
+    if link and ChatFrameEditBox and ChatFrameEditBox:IsVisible() then
+        ChatFrameEditBox:Insert(link)
+    end
+end
+
+local function CheckDisenchantBlock(btn)
+    if not (SpellIsTargeting and SpellIsTargeting()) then return false end
+    if not (btn.hasItem and btn.bagID and btn.slotID) then return false end
+    local link = GetContainerItemLink(btn.bagID, btn.slotID)
+    if not (link and addon.Modules.Utils and addon.Modules.DB) then return false end
+    local itemID = addon.Modules.Utils:ExtractItemID(link)
+    if itemID and addon.Modules.DB:IsItemProtected(itemID) then
+        SpellStopTargeting()
+        addon:Print(format(Guda_L["Cannot disenchant %s — item is protected"], link))
+        return true
+    end
+    return false
+end
+
+local function CheckMerchantSellBlock(btn, mouseButton)
+    if mouseButton ~= "RightButton" then return false end
+    if not (MerchantFrame and MerchantFrame:IsVisible()) then return false end
+    if not (btn.hasItem and btn.bagID and btn.slotID) then return false end
+    local link = GetContainerItemLink(btn.bagID, btn.slotID)
+    if not (link and addon.Modules.Utils and addon.Modules.DB) then return false end
+    local itemID = addon.Modules.Utils:ExtractItemID(link)
+    if itemID and addon.Modules.DB:IsItemProtected(itemID) then
+        addon:Print(format(Guda_L["Cannot sell %s — item is protected"], link))
+        return true
+    end
+    return false
+end
+
+-- Unregister the button's clicks so the pending OnClick does NOT fire for
+-- this mouse release, then re-register next frame. This is the mechanism we
+-- use to "cancel" a specific click without SetScript("OnClick") which would
+-- taint the secure inherited handler.
+local function SuppressNextClick(btn)
+    if not (btn and btn.RegisterForClicks) then return end
+    btn:RegisterForClicks()
+    if Guda_ScheduleTimer then
+        Guda_ScheduleTimer(0, function()
+            if btn and btn.RegisterForClicks then
+                btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            end
+        end)
+    end
+end
+
 -- OnLoad handler
 function Guda_ItemButton_OnLoad(self)
     self.hasItem = false
@@ -1157,170 +1265,112 @@ function Guda_ItemButton_OnLoad(self)
         end
     end)
 
-    self:SetScript("OnClick", function()
-        -- Click on a drop-target placeholder while carrying an item on the
-        -- cursor: route to the same handler as OnReceiveDrag (assign to
-        -- category). Without an item on the cursor a click is a no-op.
+    -- OnMouseDown: intercept clicks that must NOT reach the inherited secure
+    -- OnClick from ContainerFrameItemButtonTemplate. The inherited handler
+    -- calls UseContainerItem, which on Ascension 3.3.5a triggers a protected
+    -- spell-cast path; if our own SetScript("OnClick", ...) sits on the call
+    -- stack the whole chain becomes addon-tainted and the action is blocked
+    -- ("GudaBags has been blocked from an action only available to the
+    -- Blizzard UI"). Instead of overriding OnClick, we suppress the pending
+    -- click here via RegisterForClicks and let the secure default fire for
+    -- everything else.
+    self:SetScript("OnMouseDown", function()
+        if addon.DEBUG then
+            local mods = (IsControlKeyDown() and "C" or "-")
+                      .. (IsAltKeyDown() and "A" or "-")
+                      .. (IsShiftKeyDown() and "S" or "-")
+            addon:Debug("[MouseDown] btn=%s mb=%s mods=%s bag=%s hasItem=%s cursorHas=%s",
+                tostring(this and this:GetName()),
+                tostring(arg1),
+                mods,
+                tostring(this and this.bagID),
+                tostring(this and this.hasItem),
+                tostring(CursorHasItem and CursorHasItem() or false))
+        end
+
+        local shouldSuppress = false
+
         if this.isDropTarget then
-            if CursorHasItem and CursorHasItem() then
+            -- Drop-target placeholder: route a cursor-item click to OnReceiveDrag.
+            -- Never let the inherited handler run — its UseContainerItem call
+            -- would hit whichever bag/slot IDs this pooled button last had.
+            if arg1 == "LeftButton" and CursorHasItem and CursorHasItem() then
                 local handler = this:GetScript("OnReceiveDrag")
                 if handler then handler() end
             end
+            shouldSuppress = true
+
+        elseif this.otherChar or this.isReadOnly then
+            -- Cached view of another character / read-only: button's bagID and
+            -- slotID point at the CACHED character's slot numbers, which would
+            -- map to the current player's live bags if the inherited handler
+            -- ran. Suppress every click; handle only Shift+Left chat-linking.
+            if IsShiftKeyDown() and arg1 == "LeftButton" and this.hasItem then
+                HandleCachedChatLink(this)
+            end
+            shouldSuppress = true
+
+        elseif this.isMail then
+            -- Mail rows: no real bag/slot; always suppress.
+            shouldSuppress = true
+
+        elseif IsControlKeyDown() and arg1 == "RightButton" and this.hasItem then
+            -- Ctrl+Right-Click: lock toggle. The default right-click would
+            -- use the item, so we must intercept before OnClick fires.
+            HandleLockToggle(this)
+            shouldSuppress = true
+
+        elseif IsAltKeyDown() and arg1 == "RightButton" and this.bagID ~= nil and this.slotID then
+            -- Alt+Right-Click: pin toggle (same reasoning as above).
+            HandlePinToggle(this)
+            shouldSuppress = true
+
+        elseif CheckDisenchantBlock(this) then
+            -- Disenchant / mill / prospect target on a protected item.
+            shouldSuppress = true
+
+        elseif CheckMerchantSellBlock(this, arg1) then
+            -- Right-click at a merchant sells the item; block protected ones.
+            shouldSuppress = true
+        end
+
+        if shouldSuppress then
+            SuppressNextClick(this)
+        end
+    end)
+
+    -- HookScript("OnClick"): runs AFTER the inherited secure OnClick from the
+    -- template, so anything that would taint the secure UseContainerItem /
+    -- CastSpell chain has already completed untouched. Only use this for
+    -- behaviors where Blizzard's default is a no-op or is the desired
+    -- post-click effect:
+    --   * Alt+Left-Click: default does nothing; we toggle tracking.
+    --   * Cursor tracking: observational, for category drag-drop.
+    self:HookScript("OnClick", function()
+        -- If OnMouseDown suppressed this click via RegisterForClicks, the
+        -- inherited OnClick never fired, and neither does this hook; nothing
+        -- to do.
+        if addon.DEBUG then
+            addon:Debug("[HookClick] btn=%s mb=%s hasItem=%s cursorHas=%s",
+                tostring(this and this:GetName()),
+                tostring(arg1),
+                tostring(this and this.hasItem),
+                tostring(CursorHasItem and CursorHasItem() or false))
+        end
+
+        -- Alt+Left-Click: toggle tracking (QuestItemBar pin for unique quest
+        -- items, TrackedItemBar otherwise).
+        if IsAltKeyDown() and arg1 == "LeftButton" and this.hasItem
+                and not this.otherChar and not this.isReadOnly then
+            HandleAltLeftTrack(this)
             return
         end
 
-        -- Lock/unlock item with Ctrl+Right-Click
-        if IsControlKeyDown() and arg1 == "RightButton" and this.hasItem and not this.otherChar and not this.isReadOnly then
-            local link = GetContainerItemLink(this.bagID, this.slotID)
-            if link and addon and addon.Modules and addon.Modules.Utils and addon.Modules.DB then
-                local itemID = addon.Modules.Utils:ExtractItemID(link)
-                if itemID then
-                    -- If item is in an equipment set, toggle set protection exception
-                    if addon.Modules.DB:GetSetting("autoLockSetItems") then
-                        local EquipSets = addon.Modules.EquipmentSets
-                        if EquipSets and EquipSets.IsInSet and EquipSets:IsInSet(itemID) then
-                            local isNowExcepted = addon.Modules.DB:ToggleSetProtectionException(itemID)
-                            if isNowExcepted then
-                                addon:Print(format(Guda_L["%s set protection removed"], link))
-                            else
-                                addon:Print(format(Guda_L["%s set protection restored"], link))
-                            end
-                            -- Refresh bag/bank frames
-                            if addon.Modules.BagFrame and addon.Modules.BagFrame.Update then
-                                addon.Modules.BagFrame:Update()
-                            end
-                            if addon.Modules.BankFrame and addon.Modules.BankFrame.Update then
-                                addon.Modules.BankFrame:Update()
-                            end
-                            return
-                        end
-                    end
-                    local isNowLocked = addon.Modules.DB:ToggleItemLock(itemID)
-                    if isNowLocked then
-                        addon:Print(format(Guda_L["%s locked"], link))
-                    else
-                        addon:Print(format(Guda_L["%s unlocked"], link))
-                    end
-                    -- Refresh bag/bank frames
-                    if addon.Modules.BagFrame and addon.Modules.BagFrame.Update then
-                        addon.Modules.BagFrame:Update()
-                    end
-                    if addon.Modules.BankFrame and addon.Modules.BankFrame.Update then
-                        addon.Modules.BankFrame:Update()
-                    end
-                end
-            end
-            return
-        end
-
-        -- Pin/unpin slot with Alt+Right-Click
-        if IsAltKeyDown() and arg1 == "RightButton" and not this.otherChar and not this.isReadOnly then
-            if this.bagID ~= nil and this.slotID and addon.Modules.DB then
-                local isNowPinned = addon.Modules.DB:TogglePinnedSlot(this.bagID, this.slotID)
-                local itemName = ""
-                if this.hasItem and this.itemData and this.itemData.link then
-                    itemName = " " .. this.itemData.link
-                end
-                if isNowPinned then
-                    addon:Print(format(Guda_L["Slot pinned %s (skipped during sort)"], itemName))
-                else
-                    addon:Print(format(Guda_L["Slot unpinned %s"], itemName))
-                end
-                -- Refresh to show/hide pin icon
-                if addon.Modules.BagFrame and addon.Modules.BagFrame.Update then
-                    addon.Modules.BagFrame:Update()
-                end
-                if addon.Modules.BankFrame and addon.Modules.BankFrame.Update then
-                    addon.Modules.BankFrame:Update()
-                end
-            end
-            return
-        end
-
-        if IsAltKeyDown() and arg1 == "LeftButton" and this.hasItem and not this.otherChar and not this.isReadOnly then
-            local link = GetContainerItemLink(this.bagID, this.slotID)
-            if link and addon and addon.Modules and addon.Modules.Utils then
-                local itemID = addon.Modules.Utils:ExtractItemID(link)
-                if itemID then
-                    local isQuest = IsQuestItem(this.bagID, this.slotID, this.isBank, this.itemData)
-                    local isUnique = addon.Modules.Utils:IsUniqueItem(this.bagID, this.slotID, link)
-
-                    -- Only pin to QuestItemBar if it's a unique quest item
-                    if isQuest and isUnique and addon.Modules.QuestItemBar and addon.Modules.QuestItemBar.PinItem then
-                        addon.Modules.QuestItemBar:PinItem(itemID)
-                        return
-                    end
-
-                    -- Track non-unique quest items and regular items in TrackedItemBar
-                    local trackedItems = addon.Modules.DB:GetSetting("trackedItems") or {}
-                    if trackedItems[itemID] then
-                        trackedItems[itemID] = nil
-                    else
-                        trackedItems[itemID] = true
-                    end
-                    addon.Modules.DB:SetSetting("trackedItems", trackedItems)
-
-                    -- Update all item buttons
-                    if Guda.Modules.BagFrame and Guda.Modules.BagFrame.Update then
-                        Guda.Modules.BagFrame:Update()
-                    end
-                    if Guda.Modules.BankFrame and Guda.Modules.BankFrame.Update then
-                        Guda.Modules.BankFrame:Update()
-                    end
-                    if Guda.Modules.TrackedItemBar and Guda.Modules.TrackedItemBar.Update then
-                        Guda.Modules.TrackedItemBar:Update()
-                    end
-                    return
-                end
-            end
-        end
-        
-        -- Shift-click to link cached items to chat (remote bank, read-only, or closed bank)
-        if IsShiftKeyDown() and arg1 == "LeftButton" and this.hasItem then
-            if this.otherChar or this.isReadOnly or (this.isBank and this.bagID == -1 and not (getglobal("BankFrame") and getglobal("BankFrame"):IsVisible())) then
-                local link = this.itemData and this.itemData.link
-                if link and ChatFrameEditBox and ChatFrameEditBox:IsVisible() then
-                    ChatFrameEditBox:Insert(link)
-                    return
-                end
-            end
-        end
-
-        -- Block disenchant/milling/prospecting on protected items
-        if SpellIsTargeting and SpellIsTargeting() and this.hasItem and this.bagID and this.slotID then
-            local link = GetContainerItemLink(this.bagID, this.slotID)
-            if link and addon and addon.Modules and addon.Modules.Utils and addon.Modules.DB then
-                local itemID = addon.Modules.Utils:ExtractItemID(link)
-                if itemID and addon.Modules.DB:IsItemProtected(itemID) then
-                    SpellStopTargeting()
-                    addon:Print(format(Guda_L["Cannot disenchant %s — item is protected"], link))
-                    return
-                end
-            end
-        end
-
-        -- Default behavior
-        if ContainerFrameItemButton_OnClick then
-            -- Mailbox clicks should be ignored except for Ctrl+Click (preview)
-            -- OR if it's a live mail item for the current player and Shift+Click (loot)
-            if this.isMail then
-                if IsControlKeyDown() then
-                    ContainerFrameItemButton_OnClick(this, arg1)
-                end
-                return
-            end
-
-            -- Track cursor item before pickup for category drag-drop
-            if this.hasItem and this.bagID and this.slotID and not CursorHasItem() then
-                Guda_TrackCursorItem(this.bagID, this.slotID)
-            end
-
-            ContainerFrameItemButton_OnClick(this, arg1)
-
-            -- Clear cursor tracking if item was placed (cursor no longer has item)
-            if not CursorHasItem() then
-                Guda_ClearCursorItem()
-            end
+        -- Post-click cursor tracking for category drag-drop.
+        if CursorHasItem and CursorHasItem() and this.hasItem and this.bagID and this.slotID then
+            Guda_TrackCursorItem(this.bagID, this.slotID)
+        elseif not (CursorHasItem and CursorHasItem()) then
+            Guda_ClearCursorItem()
         end
     end)
 
