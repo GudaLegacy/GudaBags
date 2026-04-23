@@ -546,6 +546,11 @@ local function CreateBagFlyout(parent)
 		local btn = CreateFrame("Button", "Guda_BagFlyout_Slot" .. i, flyout, "ItemButtonTemplate")
 		btn:SetWidth(slotSize)
 		btn:SetHeight(slotSize)
+		-- Force the button above the flyout's own frame level so it receives
+		-- clicks before the mouse-enabled flyout backdrop eats them (on
+		-- Ascension, child frame level is not reliably above the parent).
+		btn:SetFrameLevel(flyout:GetFrameLevel() + 5)
+		btn:EnableMouse(true)
 
 		if i == 1 then
 			btn:SetPoint("BOTTOM", flyout, "BOTTOM", 0, padding)
@@ -556,11 +561,31 @@ local function CreateBagFlyout(parent)
 		btn.bagID = bagID
 		btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
-		-- Hide template borders
-		local normalTex = getglobal(btn:GetName() .. "NormalTexture")
+		-- Hide template borders / overlays. Ascension's modernized
+		-- ItemButtonTemplate ships extra regions (SearchOverlay, NewItemTexture)
+		-- that render a translucent grey tint over the icon by default; hide
+		-- them so the bag textures show clean like the main toolbar slots.
+		local bName = btn:GetName()
+		local normalTex = getglobal(bName .. "NormalTexture")
 		if normalTex then normalTex:SetTexture(nil); normalTex:Hide() end
-		local iconBorder = getglobal(btn:GetName() .. "IconBorder")
+		local iconBorder = getglobal(bName .. "IconBorder")
 		if iconBorder then iconBorder:Hide() end
+		local searchOverlay = getglobal(bName .. "SearchOverlay")
+		if searchOverlay then searchOverlay:Hide() end
+		local newItemTex = getglobal(bName .. "NewItemTexture")
+		if newItemTex then newItemTex:Hide() end
+		local battlepayOverlay = getglobal(bName .. "BattlepayItemTexture")
+		if battlepayOverlay then battlepayOverlay:Hide() end
+		-- Make sure the icon texture renders at full brightness (pooled
+		-- creation may have left it desaturated or tinted).
+		local iconTex = getglobal(bName .. "IconTexture")
+		if iconTex then
+			if iconTex.SetDesaturated then iconTex:SetDesaturated(false) end
+			iconTex:SetVertexColor(1, 1, 1)
+		end
+		if SetItemButtonDesaturated then
+			SetItemButtonDesaturated(btn, false)
+		end
 
 		-- Apply footer button backdrop
 		Guda_BagSlot_ApplyBackdrop(btn)

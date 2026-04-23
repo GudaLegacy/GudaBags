@@ -308,7 +308,7 @@
                     <CheckButton name="Guda_SettingsPopup_AutoCloseBagsCheckbox" inherits="OptionsCheckButtonTemplate">
                         <Anchors>
                             <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_ShowTooltipCountsCheckbox">
-                                <Offset><AbsDimension x="0" y="-35"/></Offset>
+                                <Offset><AbsDimension x="0" y="-45"/></Offset>
                             </Anchor>
                         </Anchors>
                         <Scripts>
@@ -340,19 +340,6 @@
                         <Scripts>
                             <OnLoad>Guda_SettingsPopup_AutoVendorJunkCheckbox_OnLoad(this)</OnLoad>
                             <OnClick>Guda_SettingsPopup_AutoVendorJunkCheckbox_OnClick(this)</OnClick>
-                        </Scripts>
-                    </CheckButton>
-
-                    <!-- Auto Loot Checkbox -->
-                    <CheckButton name="Guda_SettingsPopup_AutoLootCheckbox" inherits="OptionsCheckButtonTemplate">
-                        <Anchors>
-                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_AutoVendorJunkCheckbox">
-                                <Offset><AbsDimension x="0" y="-8"/></Offset>
-                            </Anchor>
-                        </Anchors>
-                        <Scripts>
-                            <OnLoad>Guda_SettingsPopup_AutoLootCheckbox_OnLoad(this)</OnLoad>
-                            <OnClick>Guda_SettingsPopup_AutoLootCheckbox_OnClick(this)</OnClick>
                         </Scripts>
                     </CheckButton>
 

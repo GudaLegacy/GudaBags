@@ -341,13 +341,6 @@ function Guda_SettingsPopup_OnShow(self)
         whiteItemsJunkCheckbox:SetChecked(whiteItemsJunk and 1 or 0)
     end
 
-    -- Auto Loot checkbox
-    local autoLootCheckbox = getglobal("Guda_SettingsPopup_AutoLootCheckbox")
-    if autoLootCheckbox then
-        local autoLoot = Guda.Modules.DB:GetSetting("autoLoot") and true or false
-        autoLootCheckbox:SetChecked(autoLoot and 1 or 0)
-    end
-
     -- Auto Open Clams checkbox
     local autoOpenClamsCheckbox = getglobal("Guda_SettingsPopup_AutoOpenClamsCheckbox")
     if autoOpenClamsCheckbox then
@@ -1499,55 +1492,6 @@ function Guda_SettingsPopup_ShowCategoryCountCheckbox_OnClick(self)
     end
 end
 
--- Auto Loot Checkbox OnLoad
-function Guda_SettingsPopup_AutoLootCheckbox_OnLoad(self)
-    local text = getglobal(self:GetName().."Text")
-    if text then
-        text:SetText(Guda_L["Auto Loot"])
-        local font, _, flags = text:GetFont()
-        if font then text:SetFont(font, 13, flags) end
-    end
-
-    -- TurtleWoW requires SuperWoW for any addon-driven autoloot to work
-    -- (both SetAutoloot and LootSlot are gated). If it's not present, soft-
-    -- disable: keep mouse enabled so the tooltip still shows on hover, but
-    -- mark the button so OnClick is a no-op and dim the label.
-    local hasSuperWoW = SetAutoloot ~= nil
-    self._gudaSoftDisabled = not hasSuperWoW
-    if hasSuperWoW then
-        self.tooltipText = Guda_L["Automatically loot all items when looting a corpse or container."]
-        if text then text:SetTextColor(1, 1, 1) end
-    else
-        self.tooltipText = Guda_L["Auto Loot requires the SuperWoW client mod. Install SuperWoW to enable this option."]
-        if text then text:SetTextColor(0.5, 0.5, 0.5) end
-    end
-
-    local enabled = false
-    if Guda and Guda.Modules and Guda.Modules.DB then
-        enabled = Guda.Modules.DB:GetSetting("autoLoot") and true or false
-    end
-    self:SetChecked(enabled and 1 or 0)
-end
-
--- Auto Loot Checkbox OnClick
-function Guda_SettingsPopup_AutoLootCheckbox_OnClick(self)
-    -- Soft-disable: revert the click and bail when SuperWoW is missing.
-    if self._gudaSoftDisabled then
-        local enabled = Guda.Modules.DB:GetSetting("autoLoot") and true or false
-        self:SetChecked(enabled and 1 or 0)
-        return
-    end
-    local isChecked = self:GetChecked() == 1
-    if Guda and Guda.Modules and Guda.Modules.DB then
-        Guda.Modules.DB:SetSetting("autoLoot", isChecked)
-    end
-    -- Apply immediately to the client (SuperWoW's SetAutoloot or vanilla
-    -- SetAutoLootDefault) so the toggle takes effect on the next loot.
-    if Guda.Modules.AutoLoot and Guda.Modules.AutoLoot.Apply then
-        Guda.Modules.AutoLoot:Apply()
-    end
-end
-
 -- Auto Open Clams Checkbox OnLoad
 function Guda_SettingsPopup_AutoOpenClamsCheckbox_OnLoad(self)
     local text = getglobal(self:GetName().."Text")
@@ -2327,14 +2271,33 @@ function Guda_SettingsPopup_AddCategory_OnClick()
     end
 end
 
--- Reset categories to defaults
+-- Reset categories to defaults (confirmation dialog + actual reset)
+StaticPopupDialogs = StaticPopupDialogs or {}
+StaticPopupDialogs["GUDA_RESET_CATEGORIES"] = {
+    text = Guda_L["Reset all categories and rules to defaults? Your customizations will be lost."]
+        or "Reset all categories and rules to defaults? Your customizations will be lost.",
+    button1 = ACCEPT or "Accept",
+    button2 = CANCEL or "Cancel",
+    OnAccept = function()
+        if Guda.Modules.CategoryManager then
+            Guda.Modules.CategoryManager:ResetToDefaults()
+            if Guda_SettingsPopup_CategoriesTab_Update then
+                Guda_SettingsPopup_CategoriesTab_Update()
+            end
+            if Guda_SettingsPopup_RefreshBagFrames then
+                Guda_SettingsPopup_RefreshBagFrames()
+            end
+            Guda:Print("Categories reset to defaults.")
+        end
+    end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
+}
+
 function Guda_SettingsPopup_ResetCategories_OnClick()
-    if Guda.Modules.CategoryManager then
-        Guda.Modules.CategoryManager:ResetToDefaults()
-        Guda_SettingsPopup_CategoriesTab_Update()
-        Guda_SettingsPopup_RefreshBagFrames()
-        Guda:Print("Categories reset to defaults.")
-    end
+    StaticPopup_Show("GUDA_RESET_CATEGORIES")
 end
 
 -- Refresh bag and bank frames after category changes
