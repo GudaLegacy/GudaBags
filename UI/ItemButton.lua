@@ -1152,8 +1152,9 @@ end
 -- Unregister the button's clicks so the pending OnClick does NOT fire for
 -- this mouse release, then re-register next frame. This is the mechanism we
 -- use to "cancel" a specific click without SetScript("OnClick") which would
--- taint the secure inherited handler.
-local function SuppressNextClick(btn)
+-- taint the secure inherited handler. Exposed as a global so the quest/tracked
+-- bars can reuse it for their own Alt+Click behaviors.
+function Guda_SuppressNextClick(btn)
     if not (btn and btn.RegisterForClicks) then return end
     btn:RegisterForClicks()
     if Guda_ScheduleTimer then
@@ -1325,6 +1326,14 @@ function Guda_ItemButton_OnLoad(self)
             HandlePinToggle(this)
             shouldSuppress = true
 
+        elseif IsAltKeyDown() and arg1 == "LeftButton" and this.hasItem
+                and not this.otherChar and not this.isReadOnly then
+            -- Alt+Left-Click: toggle tracking. Intercepted in MouseDown so the
+            -- inherited default (PickupContainerItem) doesn't put the item on
+            -- the cursor after we toggle tracking.
+            HandleAltLeftTrack(this)
+            shouldSuppress = true
+
         elseif CheckDisenchantBlock(this) then
             -- Disenchant / mill / prospect target on a protected item.
             shouldSuppress = true
@@ -1335,35 +1344,20 @@ function Guda_ItemButton_OnLoad(self)
         end
 
         if shouldSuppress then
-            SuppressNextClick(this)
+            Guda_SuppressNextClick(this)
         end
     end)
 
     -- HookScript("OnClick"): runs AFTER the inherited secure OnClick from the
-    -- template, so anything that would taint the secure UseContainerItem /
-    -- CastSpell chain has already completed untouched. Only use this for
-    -- behaviors where Blizzard's default is a no-op or is the desired
-    -- post-click effect:
-    --   * Alt+Left-Click: default does nothing; we toggle tracking.
-    --   * Cursor tracking: observational, for category drag-drop.
+    -- template. We only use it for post-click cursor tracking (for category
+    -- drag-drop); every modifier behavior is handled in OnMouseDown above.
     self:HookScript("OnClick", function()
-        -- If OnMouseDown suppressed this click via RegisterForClicks, the
-        -- inherited OnClick never fired, and neither does this hook; nothing
-        -- to do.
         if addon.DEBUG then
             addon:Debug("[HookClick] btn=%s mb=%s hasItem=%s cursorHas=%s",
                 tostring(this and this:GetName()),
                 tostring(arg1),
                 tostring(this and this.hasItem),
                 tostring(CursorHasItem and CursorHasItem() or false))
-        end
-
-        -- Alt+Left-Click: toggle tracking (QuestItemBar pin for unique quest
-        -- items, TrackedItemBar otherwise).
-        if IsAltKeyDown() and arg1 == "LeftButton" and this.hasItem
-                and not this.otherChar and not this.isReadOnly then
-            HandleAltLeftTrack(this)
-            return
         end
 
         -- Post-click cursor tracking for category drag-drop.

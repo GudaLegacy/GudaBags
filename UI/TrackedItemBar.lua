@@ -114,7 +114,14 @@ function TrackedItemBar:Update()
     for i, info in ipairs(trackedItemsInfo) do
         local button = buttons[i]
         if not button then
-            button = CreateFrame("Button", "Guda_TrackedItemBarButton" .. i, frame, "Guda_ItemButtonTemplate")
+            -- SecureActionButtonTemplate lets the engine dispatch item-use
+            -- through a secure path (type="item" / "item" attribute). Without
+            -- it, a tainted SetScript("OnClick", ...) calling UseContainerItem
+            -- on a consumable (food, water, potion) triggers the Ascension
+            -- 3.3.5a "GudaBags has been blocked from an action only available
+            -- to the Blizzard UI" popup, same as hearthstone did.
+            button = CreateFrame("Button", "Guda_TrackedItemBarButton" .. i, frame, "Guda_ItemButtonTemplate, SecureActionButtonTemplate")
+            button:SetAttribute("type", "item")
             table.insert(buttons, button)
 
             -- Create quest border (golden)
@@ -145,12 +152,31 @@ function TrackedItemBar:Update()
             button:RegisterForDrag("LeftButton")
             button:SetScript("OnDragStart", function() end)
             button:SetScript("OnReceiveDrag", function() end)
+            -- OnMouseDown handles two intercepts for the secure OnClick:
+            --   * Alt+Left-Click: untrack (must suppress so the item isn't used)
+            --   * Shift+Left-Click: start moving the bar
+            -- Default left/right-click without modifiers falls through to the
+            -- secure dispatcher (type="item") and uses the item.
             button:SetScript("OnMouseDown", function()
-                if arg1 == "LeftButton" then
-                    if IsShiftKeyDown() and not (CursorHasItem and CursorHasItem()) then
-                        this:GetParent():StartMoving()
-                        this:GetParent().isMoving = true
+                if arg1 ~= "LeftButton" then return end
+
+                if IsAltKeyDown() and this.itemID then
+                    local trackedIDs = addon.Modules.DB:GetSetting("trackedItems") or {}
+                    trackedIDs[this.itemID] = nil
+                    addon.Modules.DB:SetSetting("trackedItems", trackedIDs)
+                    if Guda.Modules.BagFrame and Guda.Modules.BagFrame.Update then
+                        Guda.Modules.BagFrame:Update()
                     end
+                    TrackedItemBar:Update()
+                    if Guda_SuppressNextClick then
+                        Guda_SuppressNextClick(this)
+                    end
+                    return
+                end
+
+                if IsShiftKeyDown() and not (CursorHasItem and CursorHasItem()) then
+                    this:GetParent():StartMoving()
+                    this:GetParent().isMoving = true
                 end
             end)
             button:SetScript("OnMouseUp", function()
@@ -181,29 +207,16 @@ function TrackedItemBar:Update()
         countText:SetText(info.count)
         countText:Show()
         
-        button:SetScript("OnClick", function()
-            if IsAltKeyDown() and arg1 == "LeftButton" then
-                -- Un-track item
-                local itemID = this.itemID
-                if itemID then
-                    local trackedIDs = addon.Modules.DB:GetSetting("trackedItems") or {}
-                    trackedIDs[itemID] = nil
-                    addon.Modules.DB:SetSetting("trackedItems", trackedIDs)
-                    
-                    -- Update everything
-                    if Guda.Modules.BagFrame and Guda.Modules.BagFrame.Update then
-                        Guda.Modules.BagFrame:Update()
-                    end
-                    TrackedItemBar:Update()
-                end
-            elseif not IsShiftKeyDown() then
-                -- Use item
-                if this.bagID and this.slotID then
-                    UseContainerItem(this.bagID, this.slotID)
-                end
-            end
-        end)
-        
+        -- Point the secure dispatcher at the current tracked item's link so
+        -- clicks use THIS specific stack (not just any item with the same
+        -- name). Attribute mutation is forbidden during combat; if the item
+        -- changes mid-fight we keep the previous value and refresh on the
+        -- next Update out of combat. Alt+Left untrack is handled in
+        -- OnMouseDown above with click suppression.
+        if not (InCombatLockdown and InCombatLockdown()) then
+            button:SetAttribute("item", info.link)
+        end
+
         button:SetScript("OnEnter", function()
             Guda_ItemButton_OnEnter(this)
         end)

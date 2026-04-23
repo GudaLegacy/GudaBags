@@ -1927,8 +1927,12 @@ function BagFrame:CreateHearthstoneFrame()
 	icon:SetAllPoints(frame)
 	icon:SetTexture("Interface\\Icons\\INV_Misc_Rune_01")
 
-	-- Cooldown frame (use Model type with CooldownFrameTemplate in vanilla)
-	local cooldown = CreateFrame("Model", frameName .. "_Cooldown", frame, "CooldownFrameTemplate")
+	-- Cooldown frame. 1.12 used a Model frame because Blizzard's cooldown was
+	-- a model-based swipe; WotLK 3.3.5a has a dedicated Cooldown frame type
+	-- whose SetCooldown(start, duration) method is what CooldownFrame_SetTimer
+	-- calls. Using Model here errors with "attempt to call method 'SetCooldown'
+	-- (a nil value)" the moment the hearthstone has a cooldown.
+	local cooldown = CreateFrame("Cooldown", frameName .. "_Cooldown", frame, "CooldownFrameTemplate")
 	cooldown:SetAllPoints(frame)
 	cooldown:EnableMouse(false)
 	frame.cooldown = cooldown
