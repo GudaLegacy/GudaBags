@@ -1,0 +1,417 @@
+-- Mailbox Frame
+-- Mailbox viewing UI
+
+local addon = Guda
+
+local MailboxFrame = {}
+addon.Modules.MailboxFrame = MailboxFrame
+
+local currentViewChar = nil
+local searchText = ""
+local isReadOnlyMode = true -- Mailbox is always read-only in this addon (viewing offline data)
+local itemButtons = {}
+local mailboxRows = {}
+local currentPage = 1
+local ITEMS_PER_PAGE = 7
+local mailboxClickCatcher = nil
+
+-- OnLoad
+function Guda_MailboxFrame_OnLoad(self)
+    self:SetClampedToScreen(true)
+
+    -- Apply border visibility setting
+    if MailboxFrame.UpdateBorderVisibility then
+        MailboxFrame:UpdateBorderVisibility()
+    end
+
+    -- Set up initial backdrop
+    -- (No longer needed here as UpdateBorderVisibility handles it)
+
+    -- Set up search box placeholder
+    local searchBox = getglobal(self:GetName().."_SearchBar_SearchBox")
+    if searchBox then
+        searchBox:SetText(Guda_L["Search mailbox..."])
+        searchBox:SetTextColor(0.5, 0.5, 0.5, 1)
+    end
+
+    -- Create invisible full-screen frame to catch clicks outside the mailbox frame while typing in search
+    if not mailboxClickCatcher then
+        mailboxClickCatcher = CreateFrame("Frame", "Guda_MailboxClickCatcher", UIParent)
+        mailboxClickCatcher:SetFrameStrata("BACKGROUND")
+        mailboxClickCatcher:SetAllPoints(UIParent)
+        mailboxClickCatcher:EnableMouse(true)
+        mailboxClickCatcher:Hide()
+
+        mailboxClickCatcher:SetScript("OnMouseDown", function()
+            if Guda_MailboxFrame_ClearSearch then
+                Guda_MailboxFrame_ClearSearch()
+            end
+        end)
+    end
+end
+
+-- Clear search focus
+function Guda_MailboxFrame_ClearSearch()
+    local searchBox = getglobal("Guda_MailboxFrame_SearchBar_SearchBox")
+    if searchBox then
+        searchBox:ClearFocus()
+    end
+end
+
+-- OnShow
+function Guda_MailboxFrame_OnShow(self)
+    -- Apply border visibility setting
+    if MailboxFrame.UpdateBorderVisibility then
+        MailboxFrame:UpdateBorderVisibility()
+    end
+
+    -- Apply frame transparency
+    if Guda_ApplyBackgroundTransparency then
+        Guda_ApplyBackgroundTransparency()
+    end
+
+    MailboxFrame:Update()
+end
+
+-- Update border visibility
+function MailboxFrame:UpdateBorderVisibility()
+    -- Use Theme module if available
+    if addon.Modules and addon.Modules.Theme then
+        addon.Modules.Theme:ApplyToFrame(Guda_MailboxFrame)
+        return
+    end
+
+    local hideBorders = addon.Modules.DB:GetSetting("hideBorders")
+    if hideBorders then
+        Guda:ApplyBackdrop(Guda_MailboxFrame, "MINIMALIST_BORDER", "DEFAULT")
+    else
+        Guda:ApplyBackdrop(Guda_MailboxFrame, "DEFAULT_FRAME", "DEFAULT")
+    end
+end
+
+-- OnHide
+function Guda_MailboxFrame_OnHide(self)
+    -- Close any open dropdown menus when the mailbox frame is hidden
+    CloseDropDownMenus()
+end
+
+-- Toggle visibility
+function MailboxFrame:Toggle()
+    if Guda_MailboxFrame:IsShown() then
+        Guda_MailboxFrame:Hide()
+    else
+        Guda_MailboxFrame:Show()
+    end
+end
+
+-- Show specific character's mailbox
+function MailboxFrame:GetCurrentViewChar()
+    return currentViewChar
+end
+
+function MailboxFrame:ShowCharacter(fullName)
+    currentViewChar = fullName
+    currentPage = 1
+    self:Update()
+end
+
+-- Pagination
+function MailboxFrame:NextPage()
+    currentPage = currentPage + 1
+    self:Update()
+end
+
+function MailboxFrame:PrevPage()
+    if currentPage > 1 then
+        currentPage = currentPage - 1
+        self:Update()
+    end
+end
+
+-- Initialize module
+function MailboxFrame:Initialize()
+    -- Register events if needed
+end
+
+-- Update the mailbox frame
+function MailboxFrame:Update()
+    if not Guda_MailboxFrame:IsShown() then return end
+
+    -- Determine which character to show
+    local charFullName = currentViewChar or addon.Modules.DB:GetPlayerFullName()
+    local mailboxData = addon.Modules.DB:GetCharacterMailbox(charFullName)
+    
+    -- Extract character name from fullName
+    local charName = charFullName
+    local dashPos = string.find(charFullName, "-")
+    if dashPos then
+        charName = string.sub(charFullName, 1, dashPos - 1)
+    end
+
+    getglobal("Guda_MailboxFrame_Title"):SetText(format(Guda_L["%s's Mailbox"], charName))
+
+    -- Filter items based on search text
+    local filteredItems = {}
+    local totalItems = table.getn(mailboxData)
+    for i, mail in ipairs(mailboxData) do
+        local matchesSearch = true
+        if searchText ~= "" then
+            matchesSearch = false
+            if mail.sender and string.find(string.lower(mail.sender), searchText) then
+                matchesSearch = true
+            elseif mail.subject and string.find(string.lower(mail.subject), searchText) then
+                matchesSearch = true
+            elseif mail.item and mail.item.name and string.find(string.lower(mail.item.name), searchText) then
+                matchesSearch = true
+            end
+        end
+
+        if matchesSearch then
+            table.insert(filteredItems, mail)
+        end
+    end
+
+    -- Display items
+    local emptyMessage = getglobal("Guda_MailboxFrame_EmptyMessage")
+    if emptyMessage then
+        if totalItems == 0 then
+            emptyMessage:SetText(Guda_L["No mailbox data found for this character.\n\nVisit a mailbox in-game to save your mail data."])
+            emptyMessage:Show()
+        else
+            emptyMessage:Hide()
+        end
+    end
+
+    self:DisplayItems(filteredItems, charFullName, totalItems)
+end
+
+-- Display mailbox items in a list
+function MailboxFrame:DisplayItems(items, charFullName, totalMails)
+    local container = getglobal("Guda_MailboxFrame_ItemContainer")
+    
+    -- Hide all existing rows first
+    for _, row in pairs(mailboxRows) do
+        row:Hide()
+    end
+
+    local totalItems = table.getn(items)
+    local totalPages = math.max(1, math.ceil(totalItems / ITEMS_PER_PAGE))
+    
+    if currentPage > totalPages then
+        currentPage = totalPages
+    end
+
+    local startIndex = (currentPage - 1) * ITEMS_PER_PAGE + 1
+    local endIndex = math.min(startIndex + ITEMS_PER_PAGE - 1, totalItems)
+
+    local rowIndex = 1
+    for i = startIndex, endIndex do
+        local mail = items[i]
+        local row = mailboxRows[rowIndex]
+        if not row then
+            row = CreateFrame("Frame", "Guda_MailboxRow" .. rowIndex, container, "Guda_MailboxRowTemplate")
+            mailboxRows[rowIndex] = row
+        end
+        
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -(rowIndex - 1) * 55)
+
+        -- Row Money Frame
+        local moneyFrame = getglobal(row:GetName() .. "_MoneyFrame")
+        if moneyFrame then
+            -- Ensure row money frame doesn't auto-update to character money
+            moneyFrame.moneyType = "STATIC"
+            moneyFrame:UnregisterAllEvents()
+            moneyFrame:SetScript("OnShow", nil) -- Disable Blizzard's auto-update OnShow
+            moneyFrame:SetScript("OnEvent", nil)
+            
+            -- Restore right alignment for the money frame to avoid overlap with icon
+            moneyFrame:ClearAllPoints()
+            moneyFrame:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -10, 8)
+        end
+
+        if (mail.money or 0) > 0 then
+            moneyFrame:Show()
+            MoneyFrame_Update(moneyFrame:GetName(), mail.money)
+        else
+            if moneyFrame then moneyFrame:Hide() end
+        end
+        
+        -- Fill row data
+        local sender = mail.sender or "Unknown"
+        getglobal(row:GetName() .. "_Sender"):SetText(sender)
+
+        local subject = mail.subject or "No Subject"
+        if mail.item and mail.item.quality then
+            local r, g, b = addon.Modules.Utils:GetQualityColor(mail.item.quality)
+            subject = addon.Modules.Utils:ColorText(subject, r, g, b)
+        end
+        getglobal(row:GetName() .. "_Subject"):SetText(subject)
+        
+        local expireText = ""
+        if mail.daysLeft then
+            if mail.daysLeft < 1 then
+                expireText = string.format("|cffff0000%dh|r", math.floor(mail.daysLeft * 24))
+            else
+                expireText = string.format("%dd", math.floor(mail.daysLeft))
+            end
+        end
+        getglobal(row:GetName() .. "_ExpireTime"):SetText(expireText)
+        
+        -- Item Button
+        local itemButton = getglobal(row:GetName() .. "_ItemButton")
+        -- Re-assign shared namespace function if needed, but it should be available globally or via addon
+        
+        itemButton.isBank = false
+        itemButton.otherChar = charFullName
+        itemButton.mailData = mail
+        itemButton.isMail = true
+        itemButton.mailIndex = mail.mailIndex
+        itemButton.mailItemIndex = mail.itemIndex or 1
+
+        -- Center vertically in the row
+        if itemButton then
+            itemButton:ClearAllPoints()
+            itemButton:SetPoint("LEFT", row, "LEFT", 10, 0)
+        end
+        
+        if mail.item and (mail.item.texture or mail.item.link) then
+            Guda_ItemButton_SetItem(itemButton, nil, nil, mail.item, false, charFullName, true, true)
+            itemButton.isMail = true
+            itemButton.mailData = mail
+            itemButton.mailIndex = mail.mailIndex
+            itemButton.mailItemIndex = mail.itemIndex or 1
+        else
+            Guda_ItemButton_SetItem(itemButton, nil, nil, nil, false, charFullName, true, true)
+            itemButton.isMail = true
+            itemButton.mailData = mail
+            itemButton.mailIndex = mail.mailIndex
+            itemButton.mailItemIndex = 1
+            
+            local icon = getglobal(itemButton:GetName().."IconTexture") or getglobal(itemButton:GetName().."Icon")
+            if icon then
+                if (mail.money or 0) > 0 then
+                    icon:SetTexture("Interface\\Icons\\INV_Misc_Coin_01")
+                elseif mail.packageIcon then
+                    icon:SetTexture(mail.packageIcon)
+                else
+                    icon:SetTexture("Interface\\Icons\\INV_Letter_15")
+                end
+                icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                icon:Show()
+            end
+            -- Hide quality border for mail items
+            if itemButton._borderTinted then
+                if itemButton._qualityBorder then
+                    itemButton._qualityBorder:Hide()
+                end
+                itemButton._borderTinted = false
+            end
+        end
+
+        row:Show()
+        rowIndex = rowIndex + 1
+    end
+
+    -- Update pagination buttons
+    local prevBtn = getglobal("Guda_MailboxFrame_PrevPageButton")
+    local nextBtn = getglobal("Guda_MailboxFrame_NextPageButton")
+    
+    if currentPage > 1 then
+        prevBtn:Enable()
+    else
+        prevBtn:Disable()
+    end
+    
+    if currentPage < totalPages then
+        nextBtn:Enable()
+    else
+        nextBtn:Disable()
+    end
+    
+    -- Update pagination text
+    local paginationText = getglobal("Guda_MailboxFrame_Pagination_Text")
+    if paginationText then
+        if totalMails == 0 then
+            paginationText:SetText(Guda_L["No Mail"])
+        else
+            paginationText:SetText(string.format("%d/%d (items: %d)", currentPage, totalPages, totalMails or 0))
+        end
+    end
+end
+
+-- Search text changed
+function Guda_MailboxFrame_OnSearchTextChanged()
+    local searchBox = getglobal("Guda_MailboxFrame_SearchBar_SearchBox")
+    local text = searchBox:GetText()
+    if text == Guda_L["Search mailbox..."] then
+        searchText = ""
+    else
+        searchText = string.lower(text)
+    end
+    currentPage = 1
+    MailboxFrame:Update()
+end
+
+-- Show character selection menu
+local function Guda_MailboxCharacterMenu_Initialize()
+    local DB = addon.Modules.DB
+    local currentPlayerFullName = DB:GetPlayerFullName()
+    local characters = DB:GetAllCharacters(true, true)
+
+    local own, shared = {}, {}
+    for _, char in ipairs(characters) do
+        if not DB:IsGoldBlacklisted(char.fullName) or char.fullName == currentPlayerFullName then
+            if char.isShared then
+                table.insert(shared, char)
+            else
+                table.insert(own, char)
+            end
+        end
+    end
+
+    for _, char in ipairs(own) do
+        local charFullName = char.fullName
+        local classColor = char.classToken and RAID_CLASS_COLORS[char.classToken]
+        local r, g, b = 1, 1, 1
+        if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+        local info = {}
+        info.text = addon.Modules.Utils:ColorText(char.name, r, g, b)
+        info.func = function() MailboxFrame:ShowCharacter(charFullName) end
+        local currentViewChar = MailboxFrame.GetCurrentViewChar and MailboxFrame:GetCurrentViewChar()
+        info.checked = (currentViewChar == charFullName or (not currentViewChar and charFullName == currentPlayerFullName))
+        UIDropDownMenu_AddButton(info)
+    end
+
+    if table.getn(shared) > 0 then
+        local sep = {}
+        sep.text = "Other Accounts"
+        sep.isTitle = 1
+        sep.notCheckable = 1
+        UIDropDownMenu_AddButton(sep)
+
+        for _, char in ipairs(shared) do
+            local charFullName = char.fullName
+            local classColor = char.classToken and RAID_CLASS_COLORS[char.classToken]
+            local r, g, b = 1, 1, 1
+            if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+            local info = {}
+            info.text = addon.Modules.Utils:ColorText(char.name, r, g, b)
+            info.func = function() MailboxFrame:ShowCharacter(charFullName) end
+            local currentViewChar = MailboxFrame.GetCurrentViewChar and MailboxFrame:GetCurrentViewChar()
+            info.checked = (currentViewChar == charFullName)
+            UIDropDownMenu_AddButton(info)
+        end
+    end
+end
+
+function Guda_MailboxFrame_ShowCharacterMenu()
+    local menuFrame = getglobal("Guda_MailboxCharacterMenu")
+    if not menuFrame then
+        menuFrame = CreateFrame("Frame", "Guda_MailboxCharacterMenu", UIParent, "UIDropDownMenuTemplate")
+    end
+    UIDropDownMenu_Initialize(menuFrame, Guda_MailboxCharacterMenu_Initialize, "MENU")
+    ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
+end

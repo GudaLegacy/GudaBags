@@ -1,0 +1,343 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/">
+
+    <!-- Mailbox Row Template -->
+    <Frame name="Guda_MailboxRowTemplate" virtual="true">
+        <Size>
+            <AbsDimension x="380" y="50"/>
+        </Size>
+        <Layers>
+            <Layer level="BACKGROUND">
+                <Texture name="$parent_Background">
+                    <Anchors>
+                        <Anchor point="TOPLEFT"/>
+                        <Anchor point="BOTTOMRIGHT"/>
+                    </Anchors>
+                    <Color r="1" g="1" b="1" a="0.05"/>
+                </Texture>
+            </Layer>
+            <Layer level="ARTWORK">
+                <FontString name="$parent_Sender" inherits="GameFontNormal" justifyH="LEFT">
+                    <Size>
+                        <AbsDimension x="140" y="16"/>
+                    </Size>
+                    <Anchors>
+                        <Anchor point="TOPLEFT">
+                            <Offset>
+                                <AbsDimension x="60" y="-8"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+                <FontString name="$parent_Subject" inherits="GameFontHighlightSmall" justifyH="LEFT">
+                    <Size>
+                        <AbsDimension x="280" y="14"/>
+                    </Size>
+                    <Anchors>
+                        <Anchor point="TOPLEFT" relativeTo="$parent_Sender" relativePoint="BOTTOMLEFT">
+                            <Offset>
+                                <AbsDimension x="0" y="-2"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+                <FontString name="$parent_ExpireTime" inherits="GameFontDisableSmall" justifyH="RIGHT">
+                    <Size>
+                        <AbsDimension x="100" y="12"/>
+                    </Size>
+                    <Anchors>
+                        <Anchor point="TOPRIGHT">
+                            <Offset>
+                                <AbsDimension x="-10" y="-8"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+            </Layer>
+        </Layers>
+        <Frames>
+            <Button name="$parent_ItemButton" inherits="Guda_ItemButtonTemplate">
+                <Anchors>
+                    <Anchor point="LEFT" relativeTo="$parent" relativePoint="LEFT">
+                        <Offset>
+                            <AbsDimension x="10" y="0"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+            </Button>
+            <Frame name="$parent_MoneyFrame" inherits="SmallMoneyFrameTemplate">
+                <Anchors>
+                    <Anchor point="BOTTOMRIGHT">
+                        <Offset>
+                            <AbsDimension x="-10" y="8"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+            </Frame>
+        </Frames>
+    </Frame>
+
+    <!-- Mailbox Frame -->
+    <Frame name="Guda_MailboxFrame" toplevel="true" movable="true" enableMouse="true" hidden="true" parent="UIParent">
+        <Size>
+            <AbsDimension x="420" y="540"/>
+        </Size>
+
+        <Anchors>
+            <Anchor point="CENTER" relativePoint="CENTER" relativeTo="UIParent">
+                <Offset>
+                    <AbsDimension x="0" y="0"/>
+                </Offset>
+            </Anchor>
+        </Anchors>
+
+        <Layers>
+            <!-- Title at top -->
+            <Layer level="ARTWORK">
+                <FontString name="$parent_Title" inherits="GameFontNormalLarge">
+                    <Anchors>
+                        <Anchor point="TOP">
+                            <Offset>
+                                <AbsDimension x="0" y="-12"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+            </Layer>
+        </Layers>
+
+        <Frames>
+            <!-- Close Button -->
+            <Button name="$parent_CloseButton" inherits="UIPanelCloseButton">
+                <Anchors>
+                    <Anchor point="TOPRIGHT">
+                        <Offset>
+                            <AbsDimension x="-16" y="-10"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda_MailboxFrame:Hide()
+                    </OnClick>
+                </Scripts>
+            </Button>
+
+            <!-- Search Bar -->
+            <Frame name="$parent_SearchBar">
+                <Size>
+                    <AbsDimension x="350" y="30"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="TOPLEFT">
+                        <Offset>
+                            <AbsDimension x="20" y="-40"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Frames>
+                    <EditBox name="$parent_SearchBox" autoFocus="false" inherits="InputBoxTemplate">
+                        <Size>
+                            <AbsDimension x="0" y="20"/>
+                        </Size>
+                        <Anchors>
+                            <Anchor point="LEFT">
+                                <Offset>
+                                    <AbsDimension x="16" y="0"/>
+                                </Offset>
+                            </Anchor>
+                            <Anchor point="RIGHT">
+                                <Offset>
+                                    <AbsDimension x="-10" y="0"/>
+                                </Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnTextChanged>
+                                Guda_MailboxFrame_OnSearchTextChanged()
+                            </OnTextChanged>
+                            <OnEscapePressed>
+                                this:ClearFocus()
+                            </OnEscapePressed>
+                            <OnEnterPressed>
+                                this:ClearFocus()
+                            </OnEnterPressed>
+                            <OnEditFocusGained>
+                                if this:GetText() == "Search mailbox..." then
+                                    this:SetText("")
+                                    this:SetTextColor(1, 1, 1, 1)
+                                end
+                                if Guda_MailboxClickCatcher then
+                                    Guda_MailboxClickCatcher:Show()
+                                end
+                            </OnEditFocusGained>
+                            <OnEditFocusLost>
+                                if this:GetText() == "" then
+                                    this:SetText("Search mailbox...")
+                                    this:SetTextColor(0.5, 0.5, 0.5, 1)
+                                end
+                                if Guda_MailboxClickCatcher then
+                                    Guda_MailboxClickCatcher:Hide()
+                                end
+                            </OnEditFocusLost>
+                        </Scripts>
+                    </EditBox>
+                </Frames>
+            </Frame>
+
+            <!-- Character Selection Button -->
+            <Button name="$parent_CharacterButton">
+                <Size>
+                    <AbsDimension x="24" y="22"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="TOPRIGHT">
+                        <Offset>
+                            <AbsDimension x="-20" y="-43"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="ARTWORK">
+                        <Texture name="$parent_Icon">
+                            <Size>
+                                <AbsDimension x="20" y="18"/>
+                            </Size>
+                            <Anchors>
+                                <Anchor point="CENTER"/>
+                            </Anchors>
+                            <Color r="0.8" g="0.8" b="0.8"/>
+                        </Texture>
+                    </Layer>
+                </Layers>
+                <Scripts>
+                    <OnLoad>
+                        local icon = getglobal(this:GetName().."_Icon")
+                        if icon then
+                            icon:SetTexture("Interface\\AddOns\\GudaBags\\Assets\\Envelope")
+                        end
+                    </OnLoad>
+                    <OnClick>
+                        Guda_MailboxFrame_ShowCharacterMenu()
+                    </OnClick>
+                    <OnEnter>
+                        GameTooltip:SetOwner(this, "ANCHOR_TOP")
+                        GameTooltip:SetText("Switch Character")
+                        GameTooltip:Show()
+                    </OnEnter>
+                    <OnLeave>
+                        GameTooltip:Hide()
+                    </OnLeave>
+                </Scripts>
+            </Button>
+
+            <!-- Item Container -->
+            <Frame name="Guda_MailboxFrame_ItemContainer">
+                <Size>
+                    <AbsDimension x="360" y="420"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="TOPLEFT">
+                        <Offset>
+                            <AbsDimension x="20" y="-75"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="ARTWORK">
+                        <FontString name="Guda_MailboxFrame_EmptyMessage" inherits="GameFontNormal" justifyH="CENTER" hidden="true">
+                            <Size>
+                                <AbsDimension x="300" y="0"/>
+                            </Size>
+                            <Anchors>
+                                <Anchor point="CENTER">
+                                    <Offset>
+                                        <AbsDimension x="0" y="0"/>
+                                    </Offset>
+                                </Anchor>
+                            </Anchors>
+                            <Color r="1" g="0.82" b="0"/>
+                        </FontString>
+                    </Layer>
+                </Layers>
+            </Frame>
+
+            <!-- Pagination -->
+            <Button name="$parent_PrevPageButton" inherits="UIPanelButtonTemplate" text="Prev">
+                <Size>
+                    <AbsDimension x="60" y="22"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="BOTTOM">
+                        <Offset>
+                            <AbsDimension x="-100" y="30"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda.Modules.MailboxFrame:PrevPage()
+                    </OnClick>
+                </Scripts>
+            </Button>
+
+            <Button name="$parent_NextPageButton" inherits="UIPanelButtonTemplate" text="Next">
+                <Size>
+                    <AbsDimension x="60" y="22"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="BOTTOM">
+                        <Offset>
+                            <AbsDimension x="100" y="30"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda.Modules.MailboxFrame:NextPage()
+                    </OnClick>
+                </Scripts>
+            </Button>
+
+            <Frame name="$parent_Pagination">
+                <Size>
+                    <AbsDimension x="130" y="22"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="BOTTOM">
+                        <Offset>
+                            <AbsDimension x="0" y="30"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="ARTWORK">
+                        <FontString name="$parent_Text" inherits="GameFontHighlightSmall" justifyH="CENTER">
+                            <Anchors>
+                                <Anchor point="CENTER"/>
+                            </Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+            </Frame>
+        </Frames>
+
+        <Scripts>
+            <OnLoad>
+                Guda_MailboxFrame_OnLoad(this)
+            </OnLoad>
+            <OnShow>
+                Guda_MailboxFrame_OnShow(this)
+            </OnShow>
+            <OnHide>
+                Guda_MailboxFrame_OnHide(this)
+            </OnHide>
+            <OnMouseDown>
+                this:StartMoving()
+            </OnMouseDown>
+            <OnMouseUp>
+                this:StopMovingOrSizing()
+            </OnMouseUp>
+        </Scripts>
+    </Frame>
+</Ui>

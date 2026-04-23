@@ -1,0 +1,4586 @@
+-- Guda Bag Frame
+-- Main bag viewing UI
+
+local addon = Guda
+
+-- Forward declaration (defined later near bag slot handlers)
+local Guda_TryEquipBagOnSlot
+
+local BagFrame = {}
+addon.Modules.BagFrame = BagFrame
+
+-- Use centralized frame helpers for section headers and bag parents
+function BagFrame:GetSectionHeader(index)
+    return Guda_GetSectionHeader("Guda_BagFrame", "Guda_BagFrame_ItemContainer", index)
+end
+
+function BagFrame:GetBagParent(bagID)
+    return Guda_GetBagParent("Guda_BagFrame", bagParents, bagID, "Guda_BagFrame_ItemContainer")
+end
+
+local currentViewChar = nil -- nil = current character
+function BagFrame:GetCurrentViewChar()
+    return currentViewChar
+end
+local searchText = ""
+local itemButtons = {}
+local slotToButton = {} -- Fast O(1) lookup: slotToButton[bagID][slotID] = button
+local showKeyring = false -- Toggle for keyring display
+
+-- Track empty slots that should show as placeholders in Category View
+-- Format: bagRecentlyEmptiedSlots[bagID][slotID] = { category = "CategoryName", timestamp = time, ... }
+local bagRecentlyEmptiedSlots = {}
+
+function BagFrame:ClearRecentlyEmptiedSlots()
+    for k in pairs(bagRecentlyEmptiedSlots) do
+        bagRecentlyEmptiedSlots[k] = nil
+    end
+end
+
+function BagFrame:MarkSlotAsEmptied(bagID, slotID, category, itemData)
+    if not bagRecentlyEmptiedSlots[bagID] then
+        bagRecentlyEmptiedSlots[bagID] = {}
+    end
+    bagRecentlyEmptiedSlots[bagID][slotID] = {
+        category = category or "Miscellaneous",
+        timestamp = GetTime(),
+        quality = itemData and itemData.quality or 0,
+        name = itemData and itemData.name or "",
+        iLevel = itemData and itemData.iLevel or 0,
+    }
+    addon:DebugCategory("BagFrame: Marked slot %d:%d as emptied (category: %s)", bagID, slotID, category or "Miscellaneous")
+end
+
+function BagFrame:UnmarkSlotAsEmptied(bagID, slotID)
+    if bagRecentlyEmptiedSlots[bagID] then
+        bagRecentlyEmptiedSlots[bagID][slotID] = nil
+    end
+end
+local showSoulBag = false -- Toggle for soul bag display
+local hiddenBags = {} -- Track which bags are hidden (bagID -> true/false)
+local bagParents = {} -- Per-bag parent frames to carry bagID for Blizzard item button templates
+local isMerchantOpen = false -- Track whether a vendor window is currently open to prevent auto-closing bags
+local isDragging = false  -- True while the cursor carries an item and the bag is open in category view
+local isFrameMoving = false  -- True between StartMoving and StopMovingOrSizing on the bag frame
+
+function BagFrame:IsDragging()
+    return isDragging
+end
+
+function BagFrame:IsFrameMoving()
+    return isFrameMoving
+end
+
+-- Called by the cursor watcher in ItemButton.lua on CURSOR_UPDATE edges.
+-- Toggles the dragging flag and triggers a redraw so empty-category drop
+-- targets appear/disappear in category view.
+function BagFrame:SetDragging(state)
+    state = state and true or false
+    if isDragging == state then return end
+    isDragging = state
+    if Guda_BagFrame and Guda_BagFrame:IsShown() then
+        BagFrame:Update()
+    end
+end
+
+-- Global click catcher for clearing search focus
+local clickCatcher = nil
+
+--=====================================================
+-- Deferred Usability Tint System
+-- Prevents false positives when item data isn't fully loaded on bag open
+-- Uses debouncing to handle rapid open/close safely
+--=====================================================
+local usabilityCheckFrame = nil
+local USABILITY_CHECK_DELAY = 0.25 -- Delay before re-checking usability (seconds)
+
+-- Cancel any pending deferred usability check
+local function CancelDeferredUsabilityCheck()
+    if usabilityCheckFrame then
+        usabilityCheckFrame:Hide()
+        usabilityCheckFrame.pending = false
+    end
+end
+
+-- Update usability tints on all visible item buttons — cache-only.
+-- Every SetBagItem tooltip scan on a cold item can block 50-500ms, so we
+-- never trigger scans from the bag-open path. Tints appear for items
+-- already cached; uncached items stay untinted until CacheWarmer fills
+-- them in (its BagFrame hook triggers a re-sweep when done).
+function Guda_BagFrame_UpdateAllUsabilityTints()
+    if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
+    if isFrameMoving then return end
+
+    for _, bagParent in pairs(bagParents) do
+        if bagParent and bagParent.itemButtons then
+            for button in pairs(bagParent.itemButtons) do
+                if button.hasItem and button:IsShown() and Guda_ItemButton_UpdateUsableTint then
+                    Guda_ItemButton_UpdateUsableTint(button, true)  -- cacheOnly
+                end
+            end
+        end
+    end
+end
+
+local UpdateAllUsabilityTints = Guda_BagFrame_UpdateAllUsabilityTints
+
+-- Schedule a deferred usability check with debouncing
+local function ScheduleDeferredUsabilityCheck()
+    -- Create frame on first use
+    if not usabilityCheckFrame then
+        usabilityCheckFrame = CreateFrame("Frame")
+        usabilityCheckFrame:Hide()
+        usabilityCheckFrame.elapsed = 0
+        usabilityCheckFrame.pending = false
+        usabilityCheckFrame:SetScript("OnUpdate", function()
+            -- Hold the timer at its current elapsed value while the user is
+            -- dragging the frame. Resuming the countdown during a drag would
+            -- kick off ~80 synchronous tooltip scans right when the engine
+            -- is starved for cycles, producing a multi-second apparent freeze.
+            if isFrameMoving then return end
+            this.elapsed = this.elapsed + arg1
+            if this.elapsed >= USABILITY_CHECK_DELAY then
+                this:Hide()
+                this.pending = false
+                -- Only run if bag is still open.
+                -- Note: we intentionally do NOT ClearCache here. GetItemProperties
+                -- already refuses to cache partial-tooltip scans (tooltipLooksComplete
+                -- guard in ItemDetection), so rescanning naturally re-hits items
+                -- whose first scan was incomplete while leaving good cache entries
+                -- intact — wiping the cache would defeat CacheWarmer and force a
+                -- full ~80-item tooltip burst every open.
+                if Guda_BagFrame and Guda_BagFrame:IsShown() then
+                    UpdateAllUsabilityTints()
+                end
+            end
+        end)
+    end
+
+    -- Reset timer (debounce behavior)
+    usabilityCheckFrame.elapsed = 0
+    usabilityCheckFrame.pending = true
+    usabilityCheckFrame:Show()
+end
+
+-- Get player race icon path (using racial ability icons)
+function Guda_GetPlayerRaceIcon()
+	local _, race = UnitRace("player")
+
+	-- Use racial ability icons that exist in vanilla
+	local raceIcons = {
+		Human = "Interface\\Icons\\Spell_Magic_PolymorphPig",
+		Dwarf = "Interface\\Icons\\Spell_Shadow_UnholyFrenzy",
+		NightElf = "Interface\\Icons\\Spell_Nature_Invisibility",
+		Gnome = "Interface\\Icons\\Ability_Repair",
+		Orc = "Interface\\Icons\\Ability_Racial_BloodRage",
+		Undead = "Interface\\Icons\\Spell_Shadow_RaiseDead",
+		Tauren = "Interface\\Icons\\Ability_Thunderclap",
+		Troll = "Interface\\Icons\\Ability_Racial_Avatar",
+	}
+
+	return raceIcons[race] or "Interface\\Icons\\INV_Misc_GroupNeedMore"
+end
+
+-- OnLoad
+function Guda_BagFrame_OnLoad(self)
+    -- Prevent frame from being dragged off screen
+    self:SetClampedToScreen(true)
+
+    -- Set up initial backdrop
+    addon:ApplyBackdrop(self, "DEFAULT_FRAME")
+
+-- Set up search box placeholder
+	local searchBox = getglobal(self:GetName().."_SearchBar_SearchBox")
+	if searchBox then
+		searchBox:SetText(Guda_L["Search, try ~equipment"])
+		searchBox:SetTextColor(0.5, 0.5, 0.5, 1)
+	end
+
+	-- Create invisible full-screen frame to catch clicks outside bag
+	if not clickCatcher then
+		clickCatcher = CreateFrame("Frame", "Guda_ClickCatcher", UIParent)
+		clickCatcher:SetFrameStrata("BACKGROUND")
+		clickCatcher:SetAllPoints(UIParent)
+		clickCatcher:EnableMouse(true)
+		clickCatcher:Hide()
+
+		clickCatcher:SetScript("OnMouseDown", function()
+			Guda_BagFrame_ClearSearch()
+		end)
+	end
+
+end
+
+
+-- OnShow
+function Guda_BagFrame_OnShow(self)
+	-- Play bag open sound
+	PlaySound("igBackPackOpen")
+
+-- Save bag data when opening bags
+	addon.Modules.BagScanner:SaveToDatabase()
+	addon.Modules.MoneyTracker:Update()
+
+	-- Restore saved position if it exists (only if saved as BOTTOMRIGHT)
+	if addon and addon.Modules and addon.Modules.DB then
+		local pos = addon.Modules.DB:GetSetting("bagFramePosition")
+		if pos and pos.point == "BOTTOMRIGHT" and pos.x and pos.y then
+			self:ClearAllPoints()
+			self:SetPoint("BOTTOMRIGHT", "UIParent", "BOTTOMRIGHT", pos.x, pos.y)
+		end
+	end
+
+	-- Set lock state when frame is shown (ensures all child frames are loaded)
+	if BagFrame.UpdateLockState then
+		BagFrame:UpdateLockState()
+	end
+
+	-- Apply border visibility setting
+	if BagFrame.UpdateBorderVisibility then
+		BagFrame:UpdateBorderVisibility()
+	end
+
+	-- Apply search bar visibility setting. Always start collapsed in toggle
+	-- mode so opening the bag doesn't leave stale filter state visible.
+	BagFrame.searchBarExpanded = false
+	if BagFrame.UpdateSearchBarVisibility then
+		BagFrame:UpdateSearchBarVisibility()
+	end
+
+	-- Apply footer visibility setting
+	if BagFrame.UpdateFooterVisibility then
+		BagFrame:UpdateFooterVisibility()
+	end
+
+	-- Apply frame transparency
+	if Guda_ApplyBackgroundTransparency then
+		Guda_ApplyBackgroundTransparency()
+	end
+
+	local ok, err = pcall(function() BagFrame:Update() end)
+	if not ok then
+		addon:Error("BagFrame:Update() failed: %s", tostring(err))
+	end
+
+	-- Schedule deferred usability check to fix false positives from uncached item data
+	-- This runs after a short delay when item info is fully loaded by the WoW client
+	ScheduleDeferredUsabilityCheck()
+end
+
+-- OnHide
+function Guda_BagFrame_OnHide(self)
+	-- Play bag close sound
+	PlaySound("igBackPackClose")
+
+	-- Close any open dropdown menus when the bag frame is hidden
+	CloseDropDownMenus()
+
+	-- Hide bag flyout
+	BagFrame:HideBagFlyout()
+
+	-- Hide tooltip (it may be showing for soul bag or other footer buttons)
+	GameTooltip:Hide()
+
+    -- Clear search field
+    Guda_BagFrame_ClearSearch()
+
+    -- Clear any pending update and work queue items
+    pendingUpdate = false
+    if addon.Modules.Utils and addon.Modules.Utils.ClearWorkQueue then
+        addon.Modules.Utils:ClearWorkQueue()
+    end
+
+    -- Cancel any pending throttled updates
+    local throttleFrame = getglobal("Guda_BagUpdateThrottle")
+    if throttleFrame then
+        throttleFrame:Hide()
+    end
+
+    -- Cancel any pending deferred usability check (debounce safety)
+    CancelDeferredUsabilityCheck()
+
+    -- Clear recently emptied slots tracking (reset placeholders)
+    BagFrame:ClearRecentlyEmptiedSlots()
+
+	-- Clean up all buttons when frame is hidden (safe since we're not displaying)
+	-- Use itemButtons hash instead of GetChildren() to avoid table allocation
+	for _, bagParent in pairs(bagParents) do
+		if bagParent and bagParent.itemButtons then
+			for button in pairs(bagParent.itemButtons) do
+				if button.hasItem ~= nil then
+					button:Hide()
+					button:ClearAllPoints()
+				end
+			end
+		end
+	end
+end
+
+-- Toggle visibility
+function BagFrame:Toggle()
+	if Guda_BagFrame:IsShown() then
+		Guda_BagFrame:Hide()
+	else
+		Guda_BagFrame:Show()
+	end
+end
+
+-- Show specific character's bags
+function BagFrame:ShowCharacter(fullName)
+	currentViewChar = fullName
+	self:Update()
+end
+
+-- Show current character
+function BagFrame:ShowCurrentCharacter()
+	currentViewChar = nil
+	self:Update()
+end
+
+-- Update lock states of existing buttons (lightweight, used during drag)
+function BagFrame:UpdateLockStates()
+    Guda_UpdateLockStates(bagParents)
+end
+
+-- Update a single slot without full frame redraw (used for manual item moves)
+-- Returns true if successful, false if full redraw is needed
+function BagFrame:UpdateSingleSlot(bagID, slotID, passedButton)
+    if not Guda_BagFrame:IsShown() then return false end
+    if currentViewChar then return false end  -- Can't do single-slot for other characters
+
+    -- Use passed button if available (from UpdateChangedSlots iteration)
+    -- This avoids type mismatch issues with slot ID keys (string vs number)
+    local targetButton = passedButton
+
+    if not targetButton then
+        -- Fallback: Find the button for this slot using lookup table
+        if slotToButton[bagID] then
+            -- Try both numeric and string keys to handle type mismatches
+            targetButton = slotToButton[bagID][slotID] or slotToButton[bagID][tonumber(slotID)]
+        end
+        -- Ultimate fallback: search itemButtons array
+        if not targetButton then
+            for _, button in ipairs(itemButtons) do
+                if button.bagID == bagID and button.slotID == slotID then
+                    targetButton = button
+                    break
+                end
+            end
+        end
+    end
+
+    if not targetButton then return false end
+
+    -- Get fresh item data for this slot
+    local itemLink = GetContainerItemLink(bagID, slotID)
+    local itemData = nil
+
+    if itemLink then
+        local texture, itemCount, locked, slotQuality = GetContainerItemInfo(bagID, slotID)
+        local itemID = nil
+        local _, _, idStr = string.find(itemLink, "item:(%d+)")
+        if idStr then itemID = tonumber(idStr) end
+
+        if itemID then
+            local name, link, quality, iLevel, _, itemType, subType, stackCount, equipLoc = Guda.GetItemInfo(itemID)
+            itemData = {
+                link = itemLink,
+                texture = texture,
+                count = itemCount or 1,
+                quality = quality or slotQuality or 0,
+                name = name,
+                iLevel = iLevel,
+                type = itemType,
+                subclass = subType,
+                equipLoc = equipLoc,
+                stackSize = stackCount or 1,
+                locked = locked,
+            }
+        end
+    end
+
+    -- Update the button
+    local matchesFilter = self:PassesSearchFilter(itemData)
+    Guda_ItemButton_SetItem(targetButton, bagID, slotID, itemData, false, nil, matchesFilter, false)
+
+    return true
+end
+
+-- Update changed slots in a bag by comparing with cached data
+-- Returns number of slots updated, or -1 if full redraw is needed
+function BagFrame:UpdateChangedSlots(bagID)
+    if not Guda_BagFrame:IsShown() then return -1 end
+    if currentViewChar then return -1 end
+
+    -- Check if we have the slot lookup table for this bag
+    if not slotToButton[bagID] then return -1 end
+
+    local viewType = addon.Modules.DB:GetSetting("bagViewType") or "single"
+    local isCategoryView = (viewType == "category")
+
+    if isCategoryView then
+        -- In Category View: update slots that HAVE button mappings in-place
+        -- AND check for NEW items that arrived in slots without buttons
+        local updatedCount = 0
+        for slotID, targetButton in pairs(slotToButton[bagID]) do
+            local currentLink = GetContainerItemLink(bagID, slotID)
+            local cachedLink = targetButton.itemData and targetButton.itemData.link or nil
+
+            local needsUpdate = false
+            if currentLink ~= cachedLink then
+                needsUpdate = true
+            elseif currentLink then
+                local _, currentCount = GetContainerItemInfo(bagID, slotID)
+                local cachedCount = targetButton.itemData and targetButton.itemData.count or 0
+                if currentCount ~= cachedCount then
+                    needsUpdate = true
+                end
+            end
+
+            if needsUpdate then
+                addon:DebugCategory("  bag %d slot %d: needs update (had=%s, now=%s)", bagID, slotID,
+                    cachedLink and "item" or "empty", currentLink and "item" or "empty")
+                if self:UpdateSingleSlot(bagID, slotID, targetButton) then
+                    updatedCount = updatedCount + 1
+                else
+                    addon:DebugCategory("  bag %d slot %d: UpdateSingleSlot failed -> full redraw", bagID, slotID)
+                    return -1
+                end
+            end
+        end
+
+        -- CRITICAL: Check for NEW items that arrived in slots WITHOUT button mappings
+        -- Category View only has buttons for filled slots, so new items need full redraw
+        local numSlots = GetContainerNumSlots(bagID)
+        if numSlots and numSlots > 0 then
+            for checkSlotID = 1, numSlots do
+                local hasButton = slotToButton[bagID][checkSlotID] or slotToButton[bagID][tostring(checkSlotID)]
+                if not hasButton then
+                    local currentLink = GetContainerItemLink(bagID, checkSlotID)
+                    if currentLink then
+                        addon:DebugCategory("  bag %d slot %d: NEW item arrived (no button) -> full redraw", bagID, checkSlotID)
+                        return -1  -- Trigger full redraw to categorize new item
+                    end
+                end
+            end
+        end
+
+        addon:DebugCategory("UpdateChangedSlots (category): bag=%d, success, updated %d slots", bagID, updatedCount)
+        return updatedCount
+    elseif not isCategoryView then
+        -- In Single View: check all slots
+        local numSlots = GetContainerNumSlots(bagID)
+        if not numSlots or numSlots == 0 then return -1 end
+
+        local updatedCount = 0
+        for slotID = 1, numSlots do
+            -- Try both numeric and string keys to handle type mismatches
+            local targetButton = slotToButton[bagID][slotID] or slotToButton[bagID][tostring(slotID)]
+
+            if not targetButton then
+                return -1
+            end
+
+            local currentLink = GetContainerItemLink(bagID, slotID)
+            local cachedLink = targetButton.itemData and targetButton.itemData.link or nil
+
+            local needsUpdate = false
+            if currentLink ~= cachedLink then
+                needsUpdate = true
+            elseif currentLink then
+                local _, currentCount = GetContainerItemInfo(bagID, slotID)
+                local cachedCount = targetButton.itemData and targetButton.itemData.count or 0
+                if currentCount ~= cachedCount then
+                    needsUpdate = true
+                end
+            end
+
+            if needsUpdate then
+                -- Pass the button directly to avoid type mismatch lookup issues
+                if self:UpdateSingleSlot(bagID, slotID, targetButton) then
+                    updatedCount = updatedCount + 1
+                else
+                    return -1
+                end
+            end
+        end
+        return updatedCount
+    end
+end
+
+-- Bag flyout state
+local bagFlyout = nil
+local bagFlyoutExpanded = false
+
+-- Create flyout frame for bags 1-4
+local function CreateBagFlyout(parent)
+	if bagFlyout then return bagFlyout end
+
+	local flyout = CreateFrame("Frame", "Guda_BagFlyout", parent)
+	flyout:SetFrameStrata("DIALOG")
+	flyout:SetFrameLevel(150)
+
+	local slotSize = 32
+	local padding = 4
+	local numBags = 4
+	flyout:SetWidth(slotSize + padding * 2)
+	flyout:SetHeight(slotSize * numBags + padding * 2)
+
+	flyout:SetBackdrop({
+		bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true, tileSize = 16, edgeSize = 12,
+		insets = { left = 2, right = 2, top = 2, bottom = 2 }
+	})
+	flyout:SetBackdropColor(0.12, 0.12, 0.12, 0.95)
+	flyout:SetBackdropBorderColor(0.30, 0.30, 0.30, 1)
+
+	flyout:SetPoint("BOTTOMRIGHT", parent, "BOTTOMLEFT", -15, -9)
+	flyout:EnableMouse(true)
+	flyout:Hide()
+
+	-- Create 4 bag slot buttons inside the flyout (bags 1-4, stacked bottom to top)
+	flyout.bagSlots = {}
+	for i = 1, numBags do
+		local bagID = i
+		local btn = CreateFrame("Button", "Guda_BagFlyout_Slot" .. i, flyout, "ItemButtonTemplate")
+		btn:SetWidth(slotSize)
+		btn:SetHeight(slotSize)
+
+		if i == 1 then
+			btn:SetPoint("BOTTOM", flyout, "BOTTOM", 0, padding)
+		else
+			btn:SetPoint("BOTTOM", flyout.bagSlots[i - 1], "TOP", 0, 0)
+		end
+
+		btn.bagID = bagID
+		btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+		-- Hide template borders
+		local normalTex = getglobal(btn:GetName() .. "NormalTexture")
+		if normalTex then normalTex:SetTexture(nil); normalTex:Hide() end
+		local iconBorder = getglobal(btn:GetName() .. "IconBorder")
+		if iconBorder then iconBorder:Hide() end
+
+		-- Apply footer button backdrop
+		Guda_BagSlot_ApplyBackdrop(btn)
+
+		-- Register for drag (equip bags)
+		btn:RegisterForDrag("LeftButton")
+		btn:SetScript("OnDragStart", function()
+			Guda_BagSlot_OnDragStart(this, this.bagID)
+		end)
+		btn:SetScript("OnDragStop", function()
+			Guda_BagSlot_OnDragStop(this, this.bagID)
+		end)
+
+		btn:SetScript("OnClick", function()
+			Guda_BagSlot_OnClick(this, this.bagID)
+		end)
+		btn:SetScript("OnEnter", function()
+			Guda_BagSlot_OnEnter(this, this.bagID)
+		end)
+		btn:SetScript("OnLeave", function()
+			GameTooltip:Hide()
+			Guda_BagFrame_ClearHighlightedSlots()
+			Guda_BagSlot_OnLeave(this, this.bagID)
+		end)
+
+		-- Register for bag updates
+		btn:RegisterEvent("BAG_UPDATE")
+		btn:RegisterEvent("ITEM_LOCK_CHANGED")
+		btn:RegisterEvent("CURSOR_UPDATE")
+		btn:RegisterEvent("UNIT_INVENTORY_CHANGED")
+		btn:SetScript("OnEvent", function()
+			Guda_BagSlot_OnEvent(this, event, arg1)
+		end)
+
+		-- Accept drops
+		btn:SetScript("OnReceiveDrag", function()
+			if this and this.bagID and this.bagID ~= 0 and CursorHasItem and CursorHasItem() then
+				local inv = ContainerIDToInventoryID(this.bagID)
+				Guda_TryEquipBagOnSlot(this.bagID, inv, this)
+			end
+		end)
+
+		flyout.bagSlots[i] = btn
+	end
+
+	bagFlyout = flyout
+	return flyout
+end
+
+-- Update flyout bag slot textures
+local function UpdateBagFlyout()
+	if not bagFlyout then return end
+	for i, btn in ipairs(bagFlyout.bagSlots) do
+		Guda_BagSlot_Update(btn, btn.bagID)
+	end
+end
+
+-- Toggle the bag flyout
+function BagFrame:ToggleBagFlyout()
+	local bag0 = getglobal("Guda_BagFrame_Toolbar_BagSlot0")
+	if not bag0 then return end
+
+	if not bagFlyout then
+		CreateBagFlyout(bag0)
+	end
+
+	bagFlyoutExpanded = not bagFlyoutExpanded
+
+	if bagFlyoutExpanded then
+		UpdateBagFlyout()
+		bagFlyout:Show()
+		-- Gold border when active
+		bag0:SetBackdropBorderColor(1, 0.82, 0, 1)
+	else
+		bagFlyout:Hide()
+		-- Restore theme border when inactive
+		local fb = addon.Modules.Theme:GetValue("footerButtonBorder") or { 0.30, 0.30, 0.30, 1 }
+		bag0:SetBackdropBorderColor(fb[1], fb[2], fb[3], fb[4])
+	end
+end
+
+-- Hide the bag flyout (used when frame closes, etc.)
+function BagFrame:HideBagFlyout()
+	bagFlyoutExpanded = false
+	if bagFlyout then bagFlyout:Hide() end
+	-- Restore theme border on bag0
+	local bag0 = getglobal("Guda_BagFrame_Toolbar_BagSlot0")
+	if bag0 then
+		local fb = addon.Modules.Theme:GetValue("footerButtonBorder") or { 0.30, 0.30, 0.30, 1 }
+		bag0:SetBackdropBorderColor(fb[1], fb[2], fb[3], fb[4])
+	end
+end
+
+-- Update bagline layout
+function BagFrame:UpdateBaglineLayout()
+	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
+	local toolbar = getglobal("Guda_BagFrame_Toolbar")
+	if not toolbar then return end
+
+	if hideFooter then
+		toolbar:Hide()
+		return
+	end
+
+	local hideBagline = addon.Modules.DB:GetSetting("hideBagline")
+
+	local bag0 = getglobal("Guda_BagFrame_Toolbar_BagSlot0")
+	local bag1 = getglobal("Guda_BagFrame_Toolbar_BagSlot1")
+	local bag2 = getglobal("Guda_BagFrame_Toolbar_BagSlot2")
+	local bag3 = getglobal("Guda_BagFrame_Toolbar_BagSlot3")
+	local bag4 = getglobal("Guda_BagFrame_Toolbar_BagSlot4")
+	local keyring = getglobal("Guda_BagFrame_Toolbar_KeyringButton")
+	local soulbag = getglobal("Guda_BagFrame_Toolbar_SoulBagButton")
+	local info = getglobal("Guda_BagFrame_Toolbar_BagSlotsInfo")
+	local hearthstone = getglobal("Guda_BagFrame_HearthstoneFrame")
+	local disenchant = getglobal("Guda_BagFrame_DisenchantFrame")
+	local lockpick = getglobal("Guda_BagFrame_LockpickFrame")
+
+	-- Determine last visible special button for info anchor
+	local lastButton = keyring
+	if soulbag and soulbag:IsShown() then
+		lastButton = soulbag
+	end
+
+	-- Update backpack texture based on bagline setting
+	if bag0 then
+		if hideBagline then
+			SetItemButtonTexture(bag0, "Interface\\AddOns\\GudaBags\\Assets\\bags")
+		else
+			SetItemButtonTexture(bag0, "Interface\\Buttons\\Button-Backpack-Up")
+		end
+	end
+
+	if hideBagline then
+		-- Hide bags 1-4, show only bag0 + keyring + soulbag
+		if bag1 then bag1:Hide() end
+		if bag2 then bag2:Hide() end
+		if bag3 then bag3:Hide() end
+		if bag4 then bag4:Hide() end
+
+		-- Anchor keyring next to bag0
+		if keyring and bag0 then
+			keyring:ClearAllPoints()
+			keyring:SetPoint("LEFT", bag0, "RIGHT", 2, 0)
+		end
+
+		-- Anchor soul bag next to keyring
+		if soulbag and soulbag:IsShown() then
+			soulbag:ClearAllPoints()
+			soulbag:SetPoint("LEFT", keyring, "RIGHT", 2, 0)
+		end
+
+		-- Anchor info next to last button
+		if info then
+			info:Show()
+			info:ClearAllPoints()
+			info:SetPoint("LEFT", lastButton, "RIGHT", 8, 0)
+		end
+
+		-- Anchor hearthstone next to info
+		if hearthstone then
+			hearthstone:ClearAllPoints()
+			hearthstone:SetPoint("LEFT", info, "RIGHT", 6, 0)
+		end
+
+		-- Anchor disenchant next to hearthstone
+		if disenchant and disenchant:IsShown() then
+			disenchant:ClearAllPoints()
+			local anchor = hearthstone or info
+			disenchant:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+		end
+
+		-- Anchor lockpick next to disenchant (or hearthstone if no disenchant)
+		if lockpick and lockpick:IsShown() then
+			lockpick:ClearAllPoints()
+			local anchor = (disenchant and disenchant:IsShown()) and disenchant
+			            or hearthstone or info
+			lockpick:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+		end
+	else
+		-- Standard horizontal layout - all bags visible
+		if bag1 then
+			bag1:Show()
+			bag1:ClearAllPoints()
+			bag1:SetPoint("LEFT", bag0, "RIGHT", 2, 0)
+		end
+		if bag2 then
+			bag2:Show()
+			bag2:ClearAllPoints()
+			bag2:SetPoint("LEFT", bag1, "RIGHT", 2, 0)
+		end
+		if bag3 then
+			bag3:Show()
+			bag3:ClearAllPoints()
+			bag3:SetPoint("LEFT", bag2, "RIGHT", 2, 0)
+		end
+		if bag4 then
+			bag4:Show()
+			bag4:ClearAllPoints()
+			bag4:SetPoint("LEFT", bag3, "RIGHT", 2, 0)
+		end
+		if keyring then
+			keyring:Show()
+			keyring:ClearAllPoints()
+			keyring:SetPoint("LEFT", bag4, "RIGHT", 2, 0)
+		end
+		-- Anchor soul bag next to keyring
+		if soulbag and soulbag:IsShown() then
+			soulbag:ClearAllPoints()
+			soulbag:SetPoint("LEFT", keyring, "RIGHT", 2, 0)
+		end
+		if info then
+			info:Show()
+			info:ClearAllPoints()
+			info:SetPoint("LEFT", lastButton, "RIGHT", 8, 0)
+		end
+
+		-- Anchor hearthstone next to info
+		if hearthstone then
+			hearthstone:ClearAllPoints()
+			hearthstone:SetPoint("LEFT", info, "RIGHT", 6, 0)
+		end
+
+		-- Anchor disenchant next to hearthstone
+		if disenchant and disenchant:IsShown() then
+			disenchant:ClearAllPoints()
+			local anchor = hearthstone or info
+			disenchant:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+		end
+
+		-- Anchor lockpick next to disenchant (or hearthstone if no disenchant)
+		if lockpick and lockpick:IsShown() then
+			lockpick:ClearAllPoints()
+			local anchor = (disenchant and disenchant:IsShown()) and disenchant
+			            or hearthstone or info
+			lockpick:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+		end
+
+		-- Hide flyout when switching to full bagline
+		self:HideBagFlyout()
+	end
+
+	-- Update soul shard count
+	Guda_BagFrame_UpdateSoulBagCount()
+end
+
+-- Deferred update state for frame budgeting
+local pendingUpdate = false
+local updateDebounceFrame = nil
+local UPDATE_DEBOUNCE_TIME = 0.05  -- 50ms debounce for rapid updates
+
+-- Schedule an update with debouncing (prevents multiple updates in rapid succession)
+function BagFrame:ScheduleUpdate()
+    if pendingUpdate then return end
+    pendingUpdate = true
+
+    if not updateDebounceFrame then
+        updateDebounceFrame = CreateFrame("Frame")
+        updateDebounceFrame.elapsed = 0
+    end
+
+    updateDebounceFrame.elapsed = 0
+    updateDebounceFrame:SetScript("OnUpdate", function()
+        this.elapsed = this.elapsed + arg1
+        if this.elapsed >= UPDATE_DEBOUNCE_TIME then
+            this:SetScript("OnUpdate", nil)
+            pendingUpdate = false
+            BagFrame:Update()
+        end
+    end)
+end
+
+-- Update display
+function BagFrame:Update()
+	if not Guda_BagFrame:IsShown() then
+		return
+	end
+
+	-- Frame is being dragged around the screen: skip the full category rebuild
+	-- (it can take ~100ms+ on a full inventory and lands inside the native
+	-- StartMoving loop, producing a multi-second apparent freeze). Refresh
+	-- lock states cheaply instead; EndFrameMove will run one rebuild on drop
+	-- to catch up any changes that arrived during the move.
+	if isFrameMoving then
+		self:UpdateLockStates()
+		return
+	end
+
+	local viewType = addon.Modules.DB:GetSetting("bagViewType") or "single"
+	addon:DebugCategory("Update() START: viewType=%s", viewType)
+
+    -- Report entry for frame budget tracking
+    if addon.Modules.Utils and addon.Modules.Utils.ReportEntry then
+        addon.Modules.Utils:ReportEntry()
+    end
+
+	-- If cursor is holding an item (mid-drag), only update lock states, don't rebuild UI
+	-- BUT only if we already have items displayed - otherwise we need to do initial build.
+	-- Exception: in Category View we DO need the full rebuild so the empty-category
+	-- drop targets can appear/disappear alongside the drag state.
+	if CursorHasItem and CursorHasItem() then
+		local inCategoryView = viewType == "category"
+		-- Check if we have any displayed items
+		-- Use itemButtons hash instead of GetChildren() to avoid table allocation
+		local hasDisplayedItems = false
+		for _, bagParent in pairs(bagParents) do
+			if bagParent and bagParent.itemButtons then
+				for button in pairs(bagParent.itemButtons) do
+					if button.hasItem and button:IsShown() then
+						hasDisplayedItems = true
+						break
+					end
+				end
+			end
+			if hasDisplayedItems then break end
+		end
+
+		if hasDisplayedItems and not inCategoryView then
+			self:UpdateLockStates()
+			return
+		end
+		-- If no items displayed yet, or we're in category view (drop-target
+		-- placeholders need to render), continue with full update
+	end
+
+	-- Mark all existing buttons as not in use (we'll mark active ones during display)
+	-- Use itemButtons hash instead of GetChildren() to avoid table allocation
+	local totalButtonsBefore = 0
+	local shownButtonsBefore = 0
+	for _, bagParent in pairs(bagParents) do
+		if bagParent and bagParent.itemButtons then
+			for button in pairs(bagParent.itemButtons) do
+				if button.hasItem ~= nil then
+					totalButtonsBefore = totalButtonsBefore + 1
+					if button:IsShown() then
+						shownButtonsBefore = shownButtonsBefore + 1
+					end
+					button.inUse = false
+				end
+			end
+		end
+	end
+	addon:DebugCategory("Update() BEFORE: totalButtons=%d, shownButtons=%d", totalButtonsBefore, shownButtonsBefore)
+
+	local bagData
+	local isOtherChar = false
+	local charName = ""
+
+	local titleFont = getglobal("Guda_BagFrame_Title")
+	local displayName
+
+	if currentViewChar then
+	-- Viewing another character
+		bagData = addon.Modules.DB:GetCharacterBags(currentViewChar)
+		isOtherChar = true
+		charName = currentViewChar
+
+		local dash = string.find(currentViewChar, "-")
+		if dash then
+			displayName = string.sub(currentViewChar, 1, dash - 1)
+		else
+			displayName = currentViewChar
+		end
+	else
+	-- Viewing current character - use cached data for performance
+		bagData = addon.Modules.BagScanner:GetBagData()
+		displayName = UnitName("player") or "Character"
+	end
+
+	if titleFont and displayName then
+		titleFont:SetText(string.format(Guda_L["%s's Bags"], displayName))
+	end
+
+	-- Display items
+	local viewType = addon.Modules.DB:GetSetting("bagViewType") or "single"
+
+	-- Clear itemButtons table and slot lookup before rebuilding (prevents stale references)
+	for k in pairs(itemButtons) do
+		itemButtons[k] = nil
+	end
+	for k in pairs(slotToButton) do
+		slotToButton[k] = nil
+	end
+
+    -- Reset all section headers before displaying items
+    local i = 1
+    while true do
+        local header = getglobal("Guda_BagFrame_SectionHeader" .. i)
+        if not header then break end
+        header.inUse = false
+        header:Hide()
+        i = i + 1
+    end
+
+	if viewType == "category" then
+		addon:DebugCategory("Update() calling DisplayItemsByCategory")
+		self:DisplayItemsByCategory(bagData, isOtherChar, charName)
+		addon:DebugCategory("Update() DisplayItemsByCategory returned, itemButtons count=%d", table.getn(itemButtons))
+		-- Show sort button with merge icon/tooltip for category view
+		local sortBtn = getglobal("Guda_BagFrame_SortButton")
+		if sortBtn then
+			sortBtn:Show()
+			sortBtn.isCategoryView = true
+		end
+	else
+		self:DisplayItems(bagData, isOtherChar, charName)
+		local sortBtn = getglobal("Guda_BagFrame_SortButton")
+		if sortBtn then
+			sortBtn:Show()
+			sortBtn.isCategoryView = false
+		end
+	end
+
+	-- Update money
+	self:UpdateMoney()
+
+	-- Update hearthstone
+	self:UpdateHearthstone()
+
+	-- Update disenchant button
+	self:UpdateDisenchant()
+
+	-- Update lockpick button
+	self:UpdateLockpick()
+
+	-- Update bag slots info
+	self:UpdateBagSlotsInfo(bagData, isOtherChar)
+
+	-- Update bagline layout (hover option)
+	self:UpdateBaglineLayout()
+
+	-- Clean up unused buttons AFTER display is complete (prevents drag/drop issues)
+	-- Use itemButtons hash instead of GetChildren() to avoid table allocation
+	local hiddenCount = 0
+	local stillShownCount = 0
+	for _, bagParent in pairs(bagParents) do
+		if bagParent and bagParent.itemButtons then
+			for button in pairs(bagParent.itemButtons) do
+				if button.hasItem ~= nil and not button.inUse then
+					button:Hide()
+					button:ClearAllPoints()
+					hiddenCount = hiddenCount + 1
+				elseif button.hasItem ~= nil and button:IsShown() then
+					stillShownCount = stillShownCount + 1
+				end
+			end
+		end
+	end
+	addon:DebugCategory("Update() CLEANUP: hidden=%d, stillShown=%d", hiddenCount, stillShownCount)
+
+    -- Record performance metrics
+    if addon.Modules.Utils and addon.Modules.Utils.RecordUpdateEnd then
+        addon.Modules.Utils:RecordUpdateEnd()
+    end
+	addon:DebugCategory("Update() END")
+end
+
+-- Delegate to centralized helpers
+function BagFrame:GetSectionHeader(index)
+    return Guda_GetSectionHeader("Guda_BagFrame", "Guda_BagFrame_ItemContainer", index)
+end
+
+function BagFrame:GetBagParent(bagID)
+    return Guda_GetBagParent("Guda_BagFrame", bagParents, bagID, "Guda_BagFrame_ItemContainer")
+end
+
+-- Display items by category
+function BagFrame:DisplayItemsByCategory(bagData, isOtherChar, charName)
+    local buttonSize = addon.Modules.DB:GetSetting("iconSize") or addon.Constants.BUTTON_SIZE
+    local spacing = addon.Modules.DB:GetSetting("iconSpacing") or addon.Constants.BUTTON_SPACING
+    local perRow = addon.Modules.DB:GetSetting("bagColumns") or 10
+    local itemContainer = getglobal("Guda_BagFrame_ItemContainer")
+
+    addon:DebugCategory("DisplayItemsByCategory START: buttonSize=%d, spacing=%d, perRow=%d", buttonSize, spacing, perRow)
+
+    -- Use centralized category initialization
+    local categories, specialItems = Guda_InitCategories()
+    local categoryList = Guda_CategoryList
+
+    -- Categorize all items using centralized function
+    -- Skip soul bags here; they are handled separately below (like keyring)
+    local totalItemsCategorized = 0
+    for _, bagID in ipairs(addon.Constants.BAGS) do
+        if not hiddenBags[bagID] then
+            local isSoulBag = false
+            if isOtherChar then
+                local bag = bagData[bagID]
+                isSoulBag = bag and bag.bagType == "soul"
+            else
+                isSoulBag = addon.Modules.Utils:GetSpecializedBagType(bagID) == "soul"
+            end
+
+            if not isSoulBag then
+                local bag = bagData[bagID]
+                if bag and bag.slots then
+                    for slotID, itemData in pairs(bag.slots) do
+                        if itemData then
+                            Guda_CategorizeItem(itemData, bagID, slotID, categories, specialItems, isOtherChar)
+                            totalItemsCategorized = totalItemsCategorized + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+    addon:DebugCategory("DisplayItemsByCategory: totalItemsCategorized=%d", totalItemsCategorized)
+
+    -- Calculate total empty slots and find first available one for drop target.
+    -- Specialized bags (soul/herb/enchant/quiver/ammo) only accept their family,
+    -- so their slots don't belong in the generic "Empty" pseudo-category.
+    local totalFreeSlots = 0
+    local firstFreeBag, firstFreeSlot
+    for _, bagID in ipairs(addon.Constants.BAGS) do
+        if not hiddenBags[bagID]
+           and not addon.Modules.Utils:GetSpecializedBagType(bagID) then
+            local bag = bagData[bagID]
+            if bag then
+                totalFreeSlots = totalFreeSlots + (bag.freeSlots or 0)
+                if not firstFreeBag and (bag.freeSlots or 0) > 0 then
+                    for s = 1, (bag.numSlots or 0) do
+                        if not bag.slots or not bag.slots[s] then
+                            firstFreeBag = bagID
+                            firstFreeSlot = s
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Handle Keyring if visible
+    if showKeyring and not hiddenBags[-2] then
+        local bag = bagData[-2]
+        if bag and bag.slots then
+            for slotID, itemData in pairs(bag.slots) do
+                if itemData then
+                    table.insert(categories["Keyring"], {bagID = -2, slotID = slotID, itemData = itemData})
+                end
+            end
+        end
+    end
+
+    -- Handle Soul Bags if visible
+    if showSoulBag then
+        for _, bagID in ipairs(addon.Constants.BAGS) do
+            if not hiddenBags[bagID] then
+                local isSoulBag = false
+                if isOtherChar then
+                    local bag = bagData[bagID]
+                    isSoulBag = bag and bag.bagType == "soul"
+                else
+                    isSoulBag = addon.Modules.Utils:GetSpecializedBagType(bagID) == "soul"
+                end
+                if isSoulBag then
+                    local bag = bagData[bagID]
+                    if bag and bag.slots then
+                        for slotID, itemData in pairs(bag.slots) do
+                            if itemData then
+                                table.insert(categories["Soul Bag"], {bagID = bagID, slotID = slotID, itemData = itemData})
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Ensure Keyring and Soul Bag are in the display list when they have items
+    -- (they may be missing from categoryList if user customized category order)
+    local hasKeyringInList, hasSoulBagInList = false, false
+    for _, catName in ipairs(categoryList) do
+        if catName == "Keyring" then hasKeyringInList = true end
+        if catName == "Soul Bag" then hasSoulBagInList = true end
+    end
+    if not hasKeyringInList and categories["Keyring"] and table.getn(categories["Keyring"]) > 0 then
+        table.insert(categoryList, "Keyring")
+    end
+    if not hasSoulBagInList and categories["Soul Bag"] and table.getn(categories["Soul Bag"]) > 0 then
+        table.insert(categoryList, "Soul Bag")
+    end
+
+    -- Add recently emptied slots as empty placeholders in their respective categories
+    -- This preserves the visual position of items that were just moved out
+    if not isOtherChar then
+        for bagID, slots in pairs(bagRecentlyEmptiedSlots) do
+            if not hiddenBags[bagID] then
+                for slotID, info in pairs(slots) do
+                    -- Only add if slot is actually empty (not refilled)
+                    local currentLink = GetContainerItemLink(bagID, slotID)
+                    if not currentLink then
+                        local catName = info.category
+                        if catName and categories[catName] then
+                            table.insert(categories[catName], {
+                                bagID = bagID,
+                                slotID = slotID,
+                                itemData = {
+                                    quality = info.quality or 0,
+                                    name = info.name or "",
+                                    iLevel = info.iLevel or 0,
+                                },
+                                isEmpty = true,
+                            })
+                            addon:DebugCategory("BagFrame: Added empty placeholder for %d:%d to category %s", bagID, slotID, catName)
+                        end
+                    else
+                        -- Slot has item now, remove from tracking
+                        slots[slotID] = nil
+                    end
+                end
+            end
+        end
+    end
+
+    -- Inject drop-target pseudo-items for every currently-empty user-assignable
+    -- category while the user is dragging. They render at the tail of the bag
+    -- grid; dropping on one calls CategoryManager:AssignItemToCategory.
+    -- Excluded: system pseudo-categories (Keyring/Soul Bag/Empty), auto-only
+    -- categories whose membership is determined by item class (Quiver,
+    -- Container, Class Items), and EquipSet:* overrides (equipment-set
+    -- membership is managed via the equipment-set UI, not bag drag).
+    if not isOtherChar and isDragging and addon.Modules.CategoryManager then
+        local DROP_TARGET_BLOCKLIST = {
+            ["Keyring"] = true, ["Soul Bag"] = true, ["Empty"] = true,
+            ["Quiver"] = true, ["Container"] = true, ["Class Items"] = true,
+        }
+        local allCats = addon.Modules.CategoryManager:GetCategories()
+        local defs = allCats and allCats.definitions or {}
+        for _, catName in ipairs(Guda_CategoryList) do
+            if not DROP_TARGET_BLOCKLIST[catName]
+               and string.sub(catName, 1, 9) ~= "EquipSet:"
+               and categories[catName] and table.getn(categories[catName]) == 0
+               and defs[catName] and defs[catName].enabled ~= false then
+                local icon = defs[catName].icon or "Interface\\AddOns\\GudaBags\\Assets\\plus"
+                table.insert(categories[catName], {
+                    bagID = 0, slotID = 0,
+                    itemData = {
+                        isDropTarget = true,
+                        categoryId   = catName,
+                        texture      = icon,
+                        name         = catName,
+                        quality      = 0,
+                    },
+                })
+            end
+        end
+    end
+
+    -- Layout (theme-aware padding)
+    local _pad = { startX = 10, startY = -10 }
+    if addon.Modules and addon.Modules.Theme and addon.Modules.Theme.GetFramePadding then
+        _pad = addon.Modules.Theme:GetFramePadding()
+    end
+    local startX, startY = _pad.startX, _pad.startY
+    local currentX, currentY = 0, 0
+    local rowMaxHeight = 0
+    local headerIdx = 1
+    local totalWidth = perRow * (buttonSize + spacing)
+
+    -- Frame budget tracking for category item processing
+    local categoryItemsProcessed = 0
+    local CATEGORY_ITEMS_PER_BUDGET_CHECK = 8
+
+    -- Check merged groups setting
+    local mergedGroups = addon.Modules.DB:GetSetting("mergedGroups") or {}
+
+    -- Build category order index map for sorting within merged groups
+    local catOrderIndex = {}
+    for idx, catId in ipairs(categoryList) do
+        catOrderIndex[catId] = idx
+    end
+
+    -- Build merged group display lists if any groups are merged
+    local mergedDisplayList = {}  -- { { name, items, icon, catDef } }
+    local processedCats = {}     -- Track which categories were merged
+
+    if addon.Modules.CategoryManager then
+        local groupsByName = addon.Modules.CategoryManager:GetCategoriesByGroup()
+        for groupName, catIds in pairs(groupsByName) do
+            if mergedGroups[groupName] then
+                -- Merge all items from categories in this group into one section
+                local mergedItems = {}
+                local mergedName = groupName
+                local mergedIcon = nil
+                for _, catId in ipairs(catIds) do
+                    local items = categories[catId]
+                    if items then
+                        local orderIdx = catOrderIndex[catId] or 999
+                        for _, item in ipairs(items) do
+                            item.categoryOrderIndex = orderIdx
+                            table.insert(mergedItems, item)
+                        end
+                    end
+                    processedCats[catId] = true
+                end
+                if table.getn(mergedItems) > 0 then
+                    table.insert(mergedDisplayList, {
+                        name = mergedName,
+                        items = mergedItems,
+                        icon = nil, -- Group header, no single icon
+                    })
+                end
+            end
+        end
+    end
+
+    -- Track total buttons created across all category blocks
+    local totalButtonsCreated = 0
+
+    -- Helper to render a category block
+    local function RenderCategoryBlock(catName, items, numItems, catDef, isEmptyCat)
+        addon:DebugCategory("  Category '%s': %d items, pos=(%d,%d)", catName, numItems, currentX, currentY)
+        Guda_SortCategoryItems(items)
+
+        local effectiveItems = numItems
+        if isEmptyCat then effectiveItems = 1 end
+
+        local blockCols = effectiveItems
+        if blockCols > perRow then blockCols = perRow end
+        local blockRows = math.ceil(effectiveItems / perRow)
+        local blockWidth = blockCols * (buttonSize + spacing)
+        local blockHeight = 20 + (blockRows * (buttonSize + spacing)) + 5
+
+        -- Check if it fits in current row
+        if currentX > 0 and currentX + blockWidth + 20 > totalWidth + 5 then
+            currentX = 0
+            currentY = currentY + rowMaxHeight
+            rowMaxHeight = 0
+        end
+
+        -- Add Header
+        local header = self:GetSectionHeader(headerIdx)
+        headerIdx = headerIdx + 1
+        header:SetPoint("TOPLEFT", itemContainer, "TOPLEFT", startX + currentX, startY - currentY)
+        header:SetWidth(blockWidth)
+
+        -- Get display name from category definition
+        local displayName = catName
+        if catDef and catDef.name then
+            displayName = catDef.name
+        end
+
+        -- Set item count (gated by showCategoryCount setting)
+        if header.countText then
+            local showCount = addon.Modules.DB:GetSetting("showCategoryCount")
+            if showCount == nil then showCount = true end
+            if showCount and numItems > 1 then
+                header.countText:SetText("(" .. numItems .. ")")
+                header.countText:Show()
+            else
+                header.countText:Hide()
+            end
+        end
+
+        header.fullName = displayName
+        header.isShortened = false
+        if string.len(displayName) > 8 and effectiveItems < 2 then
+            displayName = string.sub(displayName, 1, 6) .. "..."
+            header.isShortened = true
+        end
+        header.text:SetText(displayName)
+        header:Show()
+
+        local itemY = currentY + 20
+        local col = 0
+        local row = 0
+
+        if isEmptyCat then
+            -- Render empty slot indicator
+            local bagID = firstFreeBag or 0
+            local slotID = firstFreeSlot or 1
+            local bagParent = self:GetBagParent(bagID)
+            local button = Guda_GetItemButton(bagParent)
+            button:SetParent(bagParent)
+            button:SetWidth(buttonSize)
+            button:SetHeight(buttonSize)
+            button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", itemContainer, "TOPLEFT", startX + currentX, startY - itemY)
+            button:Show()
+
+            local emptyItemData = {
+                texture = "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag",
+                count = totalFreeSlots,
+                name = "Empty Slots"
+            }
+            Guda_ItemButton_SetItem(button, bagID, slotID, emptyItemData, false, isOtherChar and charName or nil, true, true)
+            button.isReadOnly = false
+            button.inUse = true
+            table.insert(itemButtons, button)
+        else
+            for _, item in ipairs(items) do
+                local bagID = item.bagID
+                local slot = item.slotID
+                -- For empty placeholders, pass nil itemData so button shows as empty slot
+                local itemData = item.isEmpty and nil or item.itemData
+
+                local bagParent = self:GetBagParent(bagID)
+                local button = Guda_GetItemButton(bagParent)
+
+                button:SetParent(bagParent)
+                button:SetWidth(buttonSize)
+                button:SetHeight(buttonSize)
+                button:ClearAllPoints()
+                button:SetPoint("TOPLEFT", itemContainer, "TOPLEFT", startX + currentX + (col * (buttonSize + spacing)), startY - (itemY + (row * (buttonSize + spacing))))
+                button:Show()
+
+                local matchesFilter = self:PassesSearchFilter(itemData)
+                Guda_ItemButton_SetItem(button, bagID, slot, itemData, false, isOtherChar and charName or nil, matchesFilter, isOtherChar)
+                button.inUse = true
+                button.isEmptyPlaceholder = item.isEmpty or false
+                table.insert(itemButtons, button)
+                if not slotToButton[bagID] then slotToButton[bagID] = {} end
+                slotToButton[bagID][slot] = button
+                -- Remove from recently emptied if slot now has an item
+                if itemData and not item.isEmpty then
+                    self:UnmarkSlotAsEmptied(bagID, slot)
+                end
+
+                col = col + 1
+                if col >= blockCols then
+                    col = 0
+                    row = row + 1
+                end
+
+                categoryItemsProcessed = categoryItemsProcessed + 1
+                if categoryItemsProcessed >= CATEGORY_ITEMS_PER_BUDGET_CHECK then
+                    categoryItemsProcessed = 0
+                    if addon.Modules.Utils and addon.Modules.Utils.CheckTimeout and addon.Modules.Utils:CheckTimeout() then
+                        addon.Modules.Utils:ReportEntry()
+                    end
+                end
+            end
+        end
+
+        totalButtonsCreated = totalButtonsCreated + effectiveItems
+        if blockHeight > rowMaxHeight then rowMaxHeight = blockHeight end
+        currentX = currentX + blockWidth + 20
+    end
+
+    -- Render merged group sections first
+    for _, merged in ipairs(mergedDisplayList) do
+        local numItems = table.getn(merged.items)
+        if numItems > 0 then
+            RenderCategoryBlock(merged.name, merged.items, numItems, { name = merged.name, icon = merged.icon })
+        end
+    end
+
+    -- Render individual categories (skip merged ones and Empty)
+    for _, catName in ipairs(categoryList) do
+        if not processedCats[catName] then
+            local catDef = addon.Modules.CategoryManager and addon.Modules.CategoryManager:GetCategory(catName) or nil
+
+            -- Handle Empty category specially
+            if catDef and catDef.isEmptyCategory then
+                if totalFreeSlots > 0 and catDef.enabled then
+                    RenderCategoryBlock(catName, {}, 0, catDef, true)
+                end
+            else
+                local items = categories[catName]
+                local numItems = items and table.getn(items) or 0
+                if numItems > 0 then
+                    RenderCategoryBlock(catName, items, numItems, catDef, false)
+                end
+            end
+        end
+    end
+    addon:DebugCategory("DisplayItemsByCategory: totalButtonsCreated=%d from categories", totalButtonsCreated)
+
+    -- Update Y for bottom sections
+    local y = currentY + rowMaxHeight
+
+    -- Special sections at bottom (only Mounts now)
+    local bottomSections = {
+        { name = "Mounts", items = specialItems.Mount },
+    }
+
+    local x = startX
+    y = startY - y
+
+    local hasAnyBottom = false
+    for _, sec in ipairs(bottomSections) do
+        if table.getn(sec.items) > 0 then
+            hasAnyBottom = true
+            break
+        end
+    end
+
+    if hasAnyBottom then
+        y = y - 10
+        local currentBottomX = 0
+        local sectionMaxHeight = 0
+
+        for _, sec in ipairs(bottomSections) do
+            local items = sec.items
+            local numItems = table.getn(items)
+            if numItems > 0 then
+                local blockCols = numItems
+                if blockCols > perRow then blockCols = perRow end
+                local blockRows = math.ceil(numItems / perRow)
+                local blockWidth = blockCols * (buttonSize + spacing)
+                local blockHeight = 20 + (blockRows * (buttonSize + spacing))
+
+                if currentBottomX > 0 and currentBottomX + blockWidth + 20 > totalWidth + 5 then
+                    currentBottomX = 0
+                    y = y - sectionMaxHeight - 5
+                    sectionMaxHeight = 0
+                end
+
+                local header = self:GetSectionHeader(headerIdx)
+                headerIdx = headerIdx + 1
+                header:SetPoint("TOPLEFT", itemContainer, "TOPLEFT", x + currentBottomX, y)
+                header:SetWidth(blockWidth)
+                header.text:SetText(sec.name)
+                if header.countText then header.countText:SetText("(" .. numItems .. ")"); header.countText:Show() end
+                header:Show()
+
+                local itemY = y - 20
+                local sCol = 0
+                local sRow = 0
+
+                for _, item in ipairs(items) do
+                    local bagParent = self:GetBagParent(item.bagID)
+                    local button = Guda_GetItemButton(bagParent)
+                    button:SetParent(bagParent)
+                    button:SetWidth(buttonSize)
+                    button:SetHeight(buttonSize)
+                    button:ClearAllPoints()
+                    button:SetPoint("TOPLEFT", itemContainer, "TOPLEFT", x + currentBottomX + (sCol * (buttonSize + spacing)), itemY - (sRow * (buttonSize + spacing)))
+                    button:Show()
+                    Guda_ItemButton_SetItem(button, item.bagID, item.slotID, item.itemData, false, isOtherChar and charName or nil, self:PassesSearchFilter(item.itemData), isOtherChar)
+                    button.inUse = true
+                    table.insert(itemButtons, button)
+                    if not slotToButton[item.bagID] then slotToButton[item.bagID] = {} end
+                    slotToButton[item.bagID][item.slotID] = button
+
+                    sCol = sCol + 1
+                    if sCol >= blockCols then
+                        sCol = 0
+                        sRow = sRow + 1
+                    end
+                end
+
+                if blockHeight > sectionMaxHeight then sectionMaxHeight = blockHeight end
+                currentBottomX = currentBottomX + blockWidth + 20
+
+                if currentBottomX >= totalWidth then
+                    currentBottomX = 0
+                    y = y - sectionMaxHeight - 5
+                    sectionMaxHeight = 0
+                end
+            end
+        end
+
+        if currentBottomX > 0 then
+            y = y - sectionMaxHeight
+        end
+    end
+
+    local finalHeight = math.abs(y) + 20
+    itemContainer:SetHeight(finalHeight)
+    self:ResizeFrame(nil, nil, perRow, finalHeight)
+    addon:DebugCategory("DisplayItemsByCategory END: finalHeight=%d, itemButtons=%d", finalHeight, table.getn(itemButtons))
+end
+
+-- Display items
+function BagFrame:DisplayItems(bagData, isOtherChar, charName)
+	local _pad = { startX = 10, startY = -10 }
+	if addon.Modules and addon.Modules.Theme and addon.Modules.Theme.GetFramePadding then
+		_pad = addon.Modules.Theme:GetFramePadding()
+	end
+	local x, y = _pad.startX, _pad.startY
+	local row = 0
+	local col = 0
+	local buttonSize = addon.Modules.DB:GetSetting("iconSize") or addon.Constants.BUTTON_SIZE
+	local spacing = addon.Modules.DB:GetSetting("iconSpacing") or addon.Constants.BUTTON_SPACING
+	local perRow = addon.Modules.DB:GetSetting("bagColumns") or 10
+	local itemContainer = getglobal("Guda_BagFrame_ItemContainer")
+
+ -- Separate bags into regular, enchant, herb, soul, quiver, and ammo types
+ local regularBags = {}
+ local enchantBags = {}
+ local herbBags = {}
+ local soulBags = {}
+ local quiverBags = {}
+ local ammoBags = {}
+
+	for _, bagID in ipairs(addon.Constants.BAGS) do
+	-- Skip hidden bags
+		if not hiddenBags[bagID] then
+            local bagType
+            if isOtherChar then
+                -- For other characters, use saved bag type
+                local bag = bagData[bagID]
+                bagType = bag and bag.bagType or "regular"
+            else
+                -- For current character, detect bag type in real-time using unified detector
+                bagType = addon.Modules.Utils:GetSpecializedBagType(bagID) or "regular"
+            end
+
+            if bagType == "enchant" then
+                table.insert(enchantBags, bagID)
+            elseif bagType == "herb" then
+                table.insert(herbBags, bagID)
+            elseif bagType == "soul" then
+                table.insert(soulBags, bagID)
+            elseif bagType == "quiver" then
+                table.insert(quiverBags, bagID)
+            elseif bagType == "ammo" then
+                table.insert(ammoBags, bagID)
+            else
+                table.insert(regularBags, bagID)
+            end
+        end
+    end
+
+    -- Build display order: regular -> enchant -> herb -> soul -> quiver -> ammo -> keyring
+    local bagsToShow = {}
+    for _, bagID in ipairs(regularBags) do
+        table.insert(bagsToShow, {bagID = bagID, needsSpacing = false})
+    end
+
+    -- Enchant
+    if table.getn(enchantBags) > 0 then
+        for i, bagID in ipairs(enchantBags) do
+            table.insert(bagsToShow, {bagID = bagID, needsSpacing = (i == 1)})
+        end
+    end
+    -- Herb
+    if table.getn(herbBags) > 0 then
+        for i, bagID in ipairs(herbBags) do
+            table.insert(bagsToShow, {bagID = bagID, needsSpacing = (i == 1)})
+        end
+    end
+    -- Soul (only when soul bag toggle is active)
+    if showSoulBag and table.getn(soulBags) > 0 then
+        for i, bagID in ipairs(soulBags) do
+            table.insert(bagsToShow, {bagID = bagID, needsSpacing = (i == 1)})
+        end
+    end
+    -- Quiver
+    if table.getn(quiverBags) > 0 then
+        for i, bagID in ipairs(quiverBags) do
+            table.insert(bagsToShow, {bagID = bagID, needsSpacing = (i == 1)})
+        end
+    end
+    -- Ammo
+    if table.getn(ammoBags) > 0 then
+        for i, bagID in ipairs(ammoBags) do
+            table.insert(bagsToShow, {bagID = bagID, needsSpacing = (i == 1)})
+        end
+    end
+
+	-- Add keyring at the end if toggled on and not hidden
+	if showKeyring and not hiddenBags[-2] then
+		table.insert(bagsToShow, {bagID = -2, needsSpacing = true})
+	end
+
+    -- Frame budget tracking for item processing
+    local itemsProcessed = 0
+    local ITEMS_PER_BUDGET_CHECK = 8  -- Check budget every N items
+
+	for _, bagInfo in ipairs(bagsToShow) do
+		local bagID = bagInfo.bagID
+		local bag = bagData[bagID]
+
+  -- Add spacing before enchant, herb, soul, quiver, ammo, or keyring sections
+  if bagInfo.needsSpacing then
+			if col > 0 then
+			-- Move to next row if not at start of row
+				col = 0
+				row = row + 1
+			end
+			-- Add extra spacing (0.5 row for tighter spacing)
+			row = row + 0.5
+		end
+
+		-- Get slot count for this bag
+		local numSlots
+		if isOtherChar and bag and bag.numSlots then
+		-- Use stored slot count for other characters
+			numSlots = bag.numSlots
+		else
+		-- Use current character's bag slot count
+			numSlots = addon.Modules.Utils:GetBagSlotCount(bagID)
+		end
+
+		-- Only show bags that have slots
+		if numSlots and numSlots > 0 then
+		-- Iterate through ALL slots (1 to numSlots) to show empty slots too
+		-- Ensure a per-bag parent frame exists and carries the bag ID (Blizzard expects parent:GetID() == bagID)
+			local bagParent = self:GetBagParent(bagID)
+
+			for slot = 1, numSlots do
+				local itemData = bag and bag.slots and bag.slots[slot] or nil
+
+				-- Check if item matches search filter
+				local matchesFilter = self:PassesSearchFilter(itemData)
+
+				local button = Guda_GetItemButton(bagParent)
+				button.inUse = true  -- Mark this button as actively in use
+
+				-- Position button
+				local xPos = x + (col * (buttonSize + spacing))
+				local yPos = y - (row * (buttonSize + spacing))
+
+				button:ClearAllPoints()
+				button:SetPoint("TOPLEFT", itemContainer, "TOPLEFT", xPos, yPos)
+
+				-- Set item data with filter match info
+				-- isReadOnly = true when viewing other characters (can't interact with their items)
+				Guda_ItemButton_SetItem(button, bagID, slot, itemData, false, isOtherChar and charName or nil, matchesFilter, isOtherChar)
+
+				table.insert(itemButtons, button)
+				-- Populate slot lookup for O(1) access
+				if not slotToButton[bagID] then slotToButton[bagID] = {} end
+				slotToButton[bagID][slot] = button
+
+				-- Advance position
+				col = col + 1
+				if col >= perRow then
+					col = 0
+					row = row + 1
+				end
+
+                -- Frame budget check: periodically check if we've exceeded the frame budget
+                itemsProcessed = itemsProcessed + 1
+                if itemsProcessed >= ITEMS_PER_BUDGET_CHECK then
+                    itemsProcessed = 0
+                    if addon.Modules.Utils and addon.Modules.Utils.CheckTimeout and addon.Modules.Utils:CheckTimeout() then
+                        -- Budget exceeded - reset entry time and continue
+                        -- (For full deferral, we would queue remaining work, but that requires
+                        -- more complex state management. For now, we just note the budget usage.)
+                        addon.Modules.Utils:ReportEntry()
+                    end
+                end
+			end
+		end
+	end
+
+    -- Resize frame dynamically based on content
+    self:ResizeFrame(row, col, perRow)
+    
+    -- Ensure cooldown visuals are current after (re)building buttons
+    if self.RefreshCooldowns then
+        self:RefreshCooldowns()
+    end
+end
+
+-- Resize frame based on number of rows and columns
+function BagFrame:ResizeFrame(currentRow, currentCol, columns, overrideHeight)
+    return Guda_ResizeFrame("Guda_BagFrame", "Guda_BagFrame_ItemContainer", currentRow, currentCol, columns, overrideHeight)
+end
+
+-- Check if search is currently active
+function BagFrame:IsSearchActive()
+	return searchText and searchText ~= "" and searchText ~= Guda_L["Search, try ~equipment"]
+end
+
+-- Check if item passes search filter (pfUI style)
+function BagFrame:PassesSearchFilter(itemData)
+    if not self:IsSearchActive() then return true end
+    return Guda_PassesSearchFilter(itemData, searchText)
+end
+
+function BagFrame:UpdateMoney()
+	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
+	local moneyFrame = getglobal("Guda_BagFrame_MoneyFrame")
+
+	if hideFooter then
+		if moneyFrame then moneyFrame:Hide() end
+		return
+	end
+
+	if not moneyFrame then
+		addon:Debug("Guda_BagFrame exists: " .. tostring(getglobal("Guda_BagFrame") ~= nil))
+
+		-- Try to create it manually
+		self:CreateMoneyFrame()
+		moneyFrame = getglobal("Guda_BagFrame_MoneyFrame")
+	end
+
+	if moneyFrame then
+		MoneyFrame_Update("Guda_BagFrame_MoneyFrame", GetMoney())
+		FormatMoneyFrameWithCommas("Guda_BagFrame_MoneyFrame")
+		moneyFrame:Show()
+
+		-- Ensure tooltip overlay exists
+		self:EnsureMoneyTooltipOverlay()
+
+		-- Also add tooltip to toolbar empty space
+		self:SetupToolbarTooltip()
+	else
+		addon:Debug("Still couldn't find or create MoneyFrame!")
+	end
+end
+
+-- Bag type display names
+local BAG_TYPE_NAMES = {
+	soul = "Soul Bag",
+	herb = "Herb Bag",
+	enchant = "Enchanting Bag",
+	quiver = "Quiver",
+	ammo = "Ammo Pouch",
+}
+
+-- Update bag slots info text (show only regular bags, special bags in tooltip)
+function BagFrame:UpdateBagSlotsInfo(bagData, isOtherChar)
+	local infoText = getglobal("Guda_BagFrame_Toolbar_BagSlotsInfo_Text")
+	if not infoText then return end
+
+	local regularTotal = 0
+	local regularUsed = 0
+	local specialBags = {} -- { [type] = { total, used, name } }
+
+	-- Count slots in bags 0-4, separating regular from special
+	for _, bagID in ipairs(addon.Constants.BAGS) do
+		local bag = bagData[bagID]
+
+		-- Get slot count for this bag
+		local numSlots
+		if isOtherChar and bag and bag.numSlots then
+			numSlots = bag.numSlots
+		else
+			numSlots = addon.Modules.Utils:GetBagSlotCount(bagID)
+		end
+
+		if numSlots and numSlots > 0 then
+			-- Determine if this is a special bag
+			local bagType = nil
+			if not isOtherChar then
+				bagType = addon.Modules.Utils:GetSpecializedBagType(bagID)
+			elseif bag and bag.bagType and bag.bagType ~= "regular" then
+				bagType = bag.bagType
+			end
+
+			-- Count used slots
+			local used = 0
+			if bag and bag.slots then
+				for slot = 1, numSlots do
+					if bag.slots[slot] then
+						used = used + 1
+					end
+				end
+			end
+
+			if bagType then
+				-- Special bag
+				if not specialBags[bagType] then
+					specialBags[bagType] = { total = 0, used = 0, name = BAG_TYPE_NAMES[bagType] or bagType }
+				end
+				specialBags[bagType].total = specialBags[bagType].total + numSlots
+				specialBags[bagType].used = specialBags[bagType].used + used
+			else
+				-- Regular bag
+				regularTotal = regularTotal + numSlots
+				regularUsed = regularUsed + used
+			end
+		end
+	end
+
+	-- Format: "24 / 80" (used / total) - regular bags only
+	infoText:SetText(string.format("%d / %d", regularUsed, regularTotal))
+	infoText:SetTextColor(0.7, 0.7, 0.7)
+
+	-- Resize info frame to fit text so hearthstone anchors tightly
+	local infoFrame = getglobal("Guda_BagFrame_Toolbar_BagSlotsInfo")
+	if infoFrame then
+		local textWidth = infoText:GetStringWidth()
+		if textWidth and textWidth > 0 then
+			infoFrame:SetWidth(textWidth + 4)
+		end
+		infoFrame.regularTotal = regularTotal
+		infoFrame.regularUsed = regularUsed
+		infoFrame.specialBags = specialBags
+
+		-- Setup tooltip scripts if not already done
+		if not infoFrame.tooltipSetup then
+			infoFrame:EnableMouse(true)
+			infoFrame:SetScript("OnEnter", function()
+				GameTooltip:SetOwner(this, "ANCHOR_TOP")
+				GameTooltip:AddLine(Guda_L["Bag Slots"], 1, 1, 1)
+				GameTooltip:AddLine(" ")
+				-- Regular bags
+				if this.regularTotal then
+					GameTooltip:AddDoubleLine(Guda_L["Regular Bags:"], string.format("%d / %d", this.regularUsed, this.regularTotal), 1, 1, 1, 0.8, 0.8, 0.8)
+				end
+				-- Special bags
+				if this.specialBags then
+					for bagType, data in pairs(this.specialBags) do
+						GameTooltip:AddDoubleLine(data.name .. ":", string.format("%d / %d", data.used, data.total), 1, 0.82, 0, 0.8, 0.8, 0.8)
+					end
+				end
+				GameTooltip:Show()
+			end)
+			infoFrame:SetScript("OnLeave", function()
+				GameTooltip:Hide()
+			end)
+			infoFrame.tooltipSetup = true
+		end
+	end
+end
+
+function BagFrame:CreateMoneyFrame()
+	local moneyFrame = CreateFrame("Frame", "Guda_BagFrame_MoneyFrame", Guda_BagFrame, "SmallMoneyFrameTemplate")
+	moneyFrame:SetPoint("BOTTOMRIGHT", Guda_BagFrame, "BOTTOMRIGHT", -15, 10)
+	moneyFrame:SetWidth(180)
+	moneyFrame:SetHeight(35)
+	addon:Debug("MoneyFrame created via CreateMoneyFrame")
+end
+
+-- Hearthstone item ID
+local HEARTHSTONE_ID = 6948
+
+-- Create hearthstone display frame
+function BagFrame:CreateHearthstoneFrame()
+	local frameName = "Guda_BagFrame_HearthstoneFrame"
+	if getglobal(frameName) then return end
+
+	local toolbar = getglobal("Guda_BagFrame_Toolbar") or Guda_BagFrame
+	local frame = CreateFrame("Button", frameName, toolbar)
+	frame:SetWidth(20)
+	frame:SetHeight(20)
+	-- Default anchor; will be repositioned by UpdateBaglineLayout
+	local info = getglobal("Guda_BagFrame_Toolbar_BagSlotsInfo")
+	if info then
+		frame:SetPoint("LEFT", info, "RIGHT", 6, 0)
+	else
+		frame:SetPoint("LEFT", toolbar, "LEFT", 0, 0)
+	end
+	frame:SetFrameLevel((toolbar:GetFrameLevel() or 5) + 5)
+
+	-- Icon texture
+	local icon = frame:CreateTexture(frameName .. "_Icon", "ARTWORK")
+	icon:SetAllPoints(frame)
+	icon:SetTexture("Interface\\Icons\\INV_Misc_Rune_01")
+
+	-- Cooldown frame (use Model type with CooldownFrameTemplate in vanilla)
+	local cooldown = CreateFrame("Model", frameName .. "_Cooldown", frame, "CooldownFrameTemplate")
+	cooldown:SetAllPoints(frame)
+	cooldown:EnableMouse(false)
+	frame.cooldown = cooldown
+
+	-- Enable mouse and clicks
+	frame:EnableMouse(true)
+	frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+	frame:SetScript("OnEnter", function()
+		BagFrame:ShowHearthstoneTooltip(this)
+	end)
+	frame:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
+	frame:SetScript("OnClick", function()
+		BagFrame:UseHearthstone()
+	end)
+	frame:SetScript("OnMouseUp", function()
+		if arg1 == "LeftButton" or arg1 == "RightButton" then
+			BagFrame:UseHearthstone()
+		end
+	end)
+
+	addon:Debug("HearthstoneFrame created")
+end
+
+-- Find hearthstone in bags
+function BagFrame:FindHearthstone()
+	for bag = 0, 4 do
+		local numSlots = GetContainerNumSlots(bag)
+		for slot = 1, numSlots do
+			local link = GetContainerItemLink(bag, slot)
+			if link then
+				local itemId = addon.Modules.Utils:ExtractItemID(link)
+				if itemId and itemId == HEARTHSTONE_ID then
+					return bag, slot, link
+				end
+			end
+		end
+	end
+	return nil, nil, nil
+end
+
+-- Update hearthstone display
+function BagFrame:UpdateHearthstone()
+	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
+	local frame = getglobal("Guda_BagFrame_HearthstoneFrame")
+
+	if hideFooter then
+		if frame then frame:Hide() end
+		return
+	end
+
+	if not frame then
+		self:CreateHearthstoneFrame()
+		frame = getglobal("Guda_BagFrame_HearthstoneFrame")
+	end
+
+	if not frame then return end
+
+	local bag, slot, link = self:FindHearthstone()
+
+	if bag then
+		frame:SetAlpha(1)
+		frame:Show()
+
+		-- Update cooldown
+		local start, duration, enable = GetContainerItemCooldown(bag, slot)
+		if frame.cooldown and start and duration and duration > 0 then
+			CooldownFrame_SetTimer(frame.cooldown, start, duration, enable)
+		elseif frame.cooldown then
+			frame.cooldown:Hide()
+		end
+
+		-- Store location for use
+		frame.bag = bag
+		frame.slot = slot
+		frame.link = link
+	else
+		frame:SetAlpha(0.3)
+		frame:Show()
+		frame.bag = nil
+		frame.slot = nil
+		frame.link = nil
+		if frame.cooldown then
+			frame.cooldown:Hide()
+		end
+	end
+end
+
+-- Show hearthstone tooltip
+function BagFrame:ShowHearthstoneTooltip(frame)
+	if frame.bag and frame.slot then
+		GameTooltip:SetOwner(frame, "ANCHOR_TOP")
+		GameTooltip:SetBagItem(frame.bag, frame.slot)
+		GameTooltip:Show()
+	else
+		GameTooltip:SetOwner(frame, "ANCHOR_TOP")
+		GameTooltip:ClearLines()
+		GameTooltip:AddLine("Hearthstone", 1, 1, 1)
+		GameTooltip:AddLine("Not in bags", 1, 0, 0)
+		GameTooltip:Show()
+	end
+end
+
+-- Use hearthstone
+function BagFrame:UseHearthstone()
+	local frame = getglobal("Guda_BagFrame_HearthstoneFrame")
+	if frame and frame.bag and frame.slot then
+		UseContainerItem(frame.bag, frame.slot)
+	end
+end
+
+-- Check if player has Disenchant spell (i.e. has Enchanting profession)
+function BagFrame:HasDisenchant()
+	local i = 1
+	while true do
+		local name = GetSpellName(i, BOOKTYPE_SPELL)
+		if not name then break end
+		if name == "Disenchant" then return true end
+		i = i + 1
+	end
+	return false
+end
+
+-- Create disenchant button in footer
+function BagFrame:CreateDisenchantFrame()
+	local frameName = "Guda_BagFrame_DisenchantFrame"
+	if getglobal(frameName) then return end
+
+	local toolbar = getglobal("Guda_BagFrame_Toolbar") or Guda_BagFrame
+	local frame = CreateFrame("Button", frameName, toolbar)
+	frame:SetWidth(20)
+	frame:SetHeight(20)
+	-- Default anchor; will be repositioned by UpdateBaglineLayout
+	local hs = getglobal("Guda_BagFrame_HearthstoneFrame")
+	if hs then
+		frame:SetPoint("LEFT", hs, "RIGHT", 6, 0)
+	else
+		frame:SetPoint("LEFT", toolbar, "LEFT", 0, 0)
+	end
+	frame:SetFrameLevel((toolbar:GetFrameLevel() or 5) + 5)
+
+	-- Icon texture
+	local icon = frame:CreateTexture(frameName .. "_Icon", "ARTWORK")
+	icon:SetAllPoints(frame)
+	icon:SetTexture("Interface\\Icons\\Spell_Holy_RemoveCurse")
+
+	-- Enable mouse and clicks
+	frame:EnableMouse(true)
+	frame:RegisterForClicks("LeftButtonUp")
+
+	frame:SetScript("OnEnter", function()
+		GameTooltip:SetOwner(this, "ANCHOR_TOP")
+		GameTooltip:ClearLines()
+		GameTooltip:AddLine("Disenchant", 1, 1, 1)
+		GameTooltip:AddLine("Click to cast Disenchant", 0.7, 0.7, 0.7)
+		GameTooltip:Show()
+	end)
+	frame:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
+	frame:SetScript("OnClick", function()
+		CastSpellByName("Disenchant")
+	end)
+
+	addon:Debug("DisenchantFrame created")
+end
+
+-- ============================================================================
+-- Lockpick button (Rogue: Pick Lock)
+-- ============================================================================
+
+-- Check if player is a Rogue with Pick Lock learned. Class check is
+-- locale-independent; spell match falls back to English name + icon path
+-- candidates so this works on most locales without a translation table.
+-- Thieves' Tools (item 5060) presence — required to actually use Pick Lock.
+function BagFrame:HasThievesTools()
+	for bagID = 0, 4 do
+		local numSlots = GetContainerNumSlots(bagID)
+		if numSlots and numSlots > 0 then
+			for slotID = 1, numSlots do
+				local link = GetContainerItemLink(bagID, slotID)
+				if link then
+					local _, _, idStr = string.find(link, "item:(%d+)")
+					if idStr and tonumber(idStr) == 5060 then
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
+end
+
+function BagFrame:HasLockpick()
+	local i = 1
+	while true do
+		local name = GetSpellName(i, BOOKTYPE_SPELL)
+		if not name then break end
+		if name == "Pick Lock" then
+			self._lockpickSpellIndex = i
+			return true
+		end
+		local tex = GetSpellTexture(i, BOOKTYPE_SPELL)
+		if tex then
+			local tl = string.lower(tex)
+			-- Known/likely Pick Lock icon paths in 1.12 / TurtleWoW.
+			if string.find(tl, "spell_nature_slow", 1, true)
+			or string.find(tl, "ability_rogue_pickpocket", 1, true)
+			or string.find(tl, "inv_misc_key_03", 1, true) then
+				self._lockpickSpellIndex = i
+				return true
+			end
+		end
+		i = i + 1
+	end
+	self._lockpickSpellIndex = nil
+	return false
+end
+
+function BagFrame:CreateLockpickFrame()
+	local frameName = "Guda_BagFrame_LockpickFrame"
+	if getglobal(frameName) then return end
+
+	local toolbar = getglobal("Guda_BagFrame_Toolbar") or Guda_BagFrame
+	local frame = CreateFrame("Button", frameName, toolbar)
+	frame:SetWidth(20)
+	frame:SetHeight(20)
+	-- Default anchor; will be repositioned by UpdateBaglineLayout
+	local de = getglobal("Guda_BagFrame_DisenchantFrame")
+	local hs = getglobal("Guda_BagFrame_HearthstoneFrame")
+	local anchorTo = (de and de:IsShown()) and de or hs
+	if anchorTo then
+		frame:SetPoint("LEFT", anchorTo, "RIGHT", 6, 0)
+	else
+		frame:SetPoint("LEFT", toolbar, "LEFT", 0, 0)
+	end
+	frame:SetFrameLevel((toolbar:GetFrameLevel() or 5) + 5)
+
+	local icon = frame:CreateTexture(frameName .. "_Icon", "ARTWORK")
+	icon:SetAllPoints(frame)
+	icon:SetTexture("Interface\\Icons\\Spell_Nature_Slow")
+
+	frame:EnableMouse(true)
+	frame:RegisterForClicks("LeftButtonUp")
+
+	frame:SetScript("OnEnter", function()
+		GameTooltip:SetOwner(this, "ANCHOR_TOP")
+		GameTooltip:ClearLines()
+		GameTooltip:AddLine(Guda_L["Lockpicking"], 1, 1, 1)
+		if BagFrame:HasThievesTools() then
+			GameTooltip:AddLine(Guda_L["Click to cast Pick Lock"], 0.7, 0.7, 0.7)
+		else
+			GameTooltip:AddLine(Guda_L["Requires Thieves' Tools"], 1, 0.3, 0.3)
+		end
+		GameTooltip:Show()
+	end)
+	frame:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
+	frame:SetScript("OnClick", function()
+		-- Block click when no Thieves' Tools — the spell would just error.
+		if not BagFrame:HasThievesTools() then return end
+		-- Re-resolve in case spellbook changed since last update
+		if not BagFrame._lockpickSpellIndex then
+			BagFrame:HasLockpick()
+		end
+		if BagFrame._lockpickSpellIndex then
+			CastSpell(BagFrame._lockpickSpellIndex, BOOKTYPE_SPELL)
+		end
+	end)
+
+	addon:Debug("LockpickFrame created")
+end
+
+function BagFrame:UpdateLockpick()
+	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
+	local frame = getglobal("Guda_BagFrame_LockpickFrame")
+
+	if hideFooter or not self:HasLockpick() then
+		if frame then frame:Hide() end
+		return
+	end
+
+	if not frame then
+		self:CreateLockpickFrame()
+		frame = getglobal("Guda_BagFrame_LockpickFrame")
+	end
+
+	if frame then
+		frame:Show()
+		-- Dim the icon when Thieves' Tools are missing
+		local icon = getglobal(frame:GetName() .. "_Icon")
+		if icon then
+			if self:HasThievesTools() then
+				icon:SetVertexColor(1, 1, 1)
+			else
+				icon:SetVertexColor(0.4, 0.4, 0.4)
+			end
+		end
+	end
+end
+
+-- Update disenchant button visibility
+function BagFrame:UpdateDisenchant()
+	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
+	local frame = getglobal("Guda_BagFrame_DisenchantFrame")
+
+	if hideFooter or not self:HasDisenchant() then
+		if frame then frame:Hide() end
+		return
+	end
+
+	if not frame then
+		self:CreateDisenchantFrame()
+		frame = getglobal("Guda_BagFrame_DisenchantFrame")
+	end
+
+	if frame then
+		frame:Show()
+	end
+end
+
+-- Setup tooltip on toolbar empty space
+function BagFrame:SetupToolbarTooltip()
+	local toolbar = getglobal("Guda_BagFrame_Toolbar")
+	if not toolbar then return end
+
+	-- Only set up once
+	if toolbar.tooltipSetup then return end
+
+	-- Get the existing OnEnter script (if any)
+	local originalOnEnter = toolbar:GetScript("OnEnter")
+
+	-- Set new OnEnter that shows money tooltip
+	toolbar:SetScript("OnEnter", function()
+	-- Call original if it exists
+		if originalOnEnter then
+			originalOnEnter()
+		end
+
+		-- Show money tooltip
+		addon:Debug("Toolbar OnEnter - showing money tooltip")
+		Guda_BagFrame_MoneyOnEnter(getglobal("Guda_BagFrame_MoneyFrame"))
+	end)
+
+	-- Set OnLeave to hide tooltip
+	toolbar:SetScript("OnLeave", function()
+		addon:Debug("Toolbar OnLeave - hiding tooltip")
+		GameTooltip:Hide()
+	end)
+
+	toolbar.tooltipSetup = true
+	addon:Debug("Toolbar tooltip handlers set up")
+end
+
+-- Save bag frame position (always as BOTTOMRIGHT)
+local function SaveBagFramePosition()
+	local frame = getglobal("Guda_BagFrame")
+	if not frame or not addon or not addon.Modules or not addon.Modules.DB then return end
+
+	-- Always save as BOTTOMRIGHT coordinates
+	local right = frame:GetRight()
+	local bottom = frame:GetBottom()
+	local screenWidth = GetScreenWidth()
+
+	if right and bottom and screenWidth then
+		local xOffset = right - screenWidth
+		local yOffset = bottom
+
+		addon.Modules.DB:SetSetting("bagFramePosition", {
+			point = "BOTTOMRIGHT",
+			x = xOffset,
+			y = yOffset
+		})
+	end
+end
+
+-- Centralized move start/stop so every drag handler sets the same flag and
+-- we don't drift across six duplicated call sites.
+local function BeginFrameMove()
+	local bagFrame = getglobal("Guda_BagFrame")
+	if not bagFrame then return end
+	isFrameMoving = true
+	-- Pause the background work queue (CacheWarmer tooltip scans etc.) so it
+	-- doesn't eat 100ms per render frame and kill drag FPS.
+	if addon.Modules.Utils and addon.Modules.Utils.PauseWorkQueue then
+		addon.Modules.Utils:PauseWorkQueue()
+	end
+	bagFrame:StartMoving()
+end
+
+local function EndFrameMove()
+	local bagFrame = getglobal("Guda_BagFrame")
+	if not bagFrame then return end
+	bagFrame:StopMovingOrSizing()
+	isFrameMoving = false
+	SaveBagFramePosition()
+	if addon.Modules.Utils and addon.Modules.Utils.ResumeWorkQueue then
+		addon.Modules.Utils:ResumeWorkQueue()
+	end
+	-- One rebuild to catch up anything that was short-circuited during the move.
+	BagFrame:Update()
+end
+
+
+-- Create transparent overlay for money tooltip
+function BagFrame:EnsureMoneyTooltipOverlay()
+	local overlayName = "Guda_BagFrame_MoneyTooltipOverlay"
+	local overlay = getglobal(overlayName)
+
+	if not overlay then
+		local moneyFrame = getglobal("Guda_BagFrame_MoneyFrame")
+		if not moneyFrame then return end
+
+		-- Create transparent overlay frame (high strata to sit above money buttons)
+		overlay = CreateFrame("Frame", overlayName, moneyFrame)
+		overlay:SetAllPoints(moneyFrame)
+		overlay:SetFrameStrata("DIALOG")
+		overlay:EnableMouse(true)
+
+		-- Set tooltip handlers on overlay
+		overlay:SetScript("OnEnter", function()
+			addon:Debug("Money overlay OnEnter triggered")
+			Guda_BagFrame_MoneyOnEnter(moneyFrame)
+		end)
+
+		overlay:SetScript("OnLeave", function()
+			addon:Debug("Money overlay OnLeave triggered")
+			GameTooltip:Hide()
+		end)
+
+		-- Forward drag events to bag frame (if not locked)
+		overlay:SetScript("OnMouseDown", function()
+			local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+			if searchBox then
+				searchBox:ClearFocus()
+			end
+
+			local isLocked = addon.Modules.DB and addon.Modules.DB:GetSetting("lockBags")
+
+			if not isLocked and arg1 == "LeftButton" then
+				BeginFrameMove()
+			end
+		end)
+
+		overlay:SetScript("OnMouseUp", function()
+			if arg1 == "RightButton" then
+				Guda_MoneyTooltip_Hide()
+				Guda_ShowGoldTrackingMenu(moneyFrame)
+				return
+			end
+			local isLocked = addon.Modules.DB and addon.Modules.DB:GetSetting("lockBags")
+
+			if not isLocked then
+				EndFrameMove()
+			end
+		end)
+
+		addon:Debug("Money tooltip overlay created")
+	end
+
+	overlay:Show()
+end
+
+-- Money frame OnLoad handler
+function Guda_BagFrame_MoneyFrame_OnLoad(self)
+	addon:Debug("MoneyFrame OnLoad called for: " .. self:GetName())
+
+	-- Set tooltip handlers on all money denomination buttons
+	local buttons = {"GoldButton", "SilverButton", "CopperButton"}
+
+	for _, buttonName in ipairs(buttons) do
+		local fullName = self:GetName() .. buttonName
+		local button = getglobal(fullName)
+		addon:Debug("Looking for button: " .. fullName .. " - Found: " .. tostring(button ~= nil))
+		if button then
+			button:SetScript("OnEnter", function()
+				addon:Debug("Money button OnEnter triggered")
+				Guda_BagFrame_MoneyOnEnter(this:GetParent())
+			end)
+			button:SetScript("OnLeave", function()
+				Guda_MoneyTooltip_Hide()
+			end)
+		end
+	end
+
+	-- Also try setting handlers directly on the parent frame
+	addon:Debug("Setting handlers on parent frame as fallback")
+	self:EnableMouse(true)
+	self:SetScript("OnEnter", function()
+		addon:Debug("Parent frame OnEnter triggered")
+		Guda_BagFrame_MoneyOnEnter(this)
+	end)
+	self:SetScript("OnLeave", function()
+		Guda_MoneyTooltip_Hide()
+	end)
+end
+
+-- Custom money tooltip with coin icons
+local moneyTooltip = nil
+local moneyTooltipRows = {}
+
+-- Format number with thousand separators (e.g., 1234567 -> "1,234,567")
+local function FormatWithCommas(n)
+	local s = tostring(n)
+	local len = string.len(s)
+	if len <= 3 then return s end
+	local parts = {}
+	local pos = len
+	while pos > 0 do
+		local start = pos - 2
+		if start < 1 then start = 1 end
+		table.insert(parts, 1, string.sub(s, start, pos))
+		pos = start - 1
+	end
+	return table.concat(parts, ",")
+end
+
+-- Apply comma formatting to a MoneyFrame's gold button text (global for BankFrame reuse)
+function FormatMoneyFrameWithCommas(frameName)
+	local goldBtn = getglobal(frameName .. "GoldButtonText")
+	if goldBtn then
+		local text = goldBtn:GetText()
+		if text then
+			local num = tonumber(text)
+			if num and num >= 1000 then
+				goldBtn:SetText(FormatWithCommas(num))
+			end
+		end
+	end
+end
+
+local function DisableMoneyFrameAutoUpdate(frameName)
+	local frame = getglobal(frameName)
+	if frame then
+		frame.moneyType = "STATIC"
+		frame:UnregisterAllEvents()
+		frame:SetScript("OnShow", nil)
+		frame:SetScript("OnEvent", nil)
+	end
+	-- Disable click/hover on denomination buttons
+	local buttons = {"GoldButton", "SilverButton", "CopperButton"}
+	for _, btn in ipairs(buttons) do
+		local b = getglobal(frameName .. btn)
+		if b then
+			b:EnableMouse(false)
+		end
+	end
+end
+
+local function CreateMoneyTooltip()
+	local f = CreateFrame("Frame", "Guda_MoneyTooltip", UIParent)
+	f:SetFrameStrata("TOOLTIP")
+	f:SetBackdrop({
+		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true, tileSize = 16, edgeSize = 16,
+		insets = { left = 4, right = 4, top = 4, bottom = 4 },
+	})
+	f:SetBackdropColor(0, 0, 0, 0.9)
+	f:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.9)
+	f:EnableMouse(false)
+	f:Hide()
+
+	-- Auto-hide when mouse leaves both anchor and tooltip area
+	local elapsed = 0
+	f:SetScript("OnUpdate", function()
+		elapsed = elapsed + arg1
+		if elapsed < 0.2 then return end
+		elapsed = 0
+		if not this.anchor then this:Hide(); return end
+		if MouseIsOver(this) then return end
+		if MouseIsOver(this.anchor) then return end
+		this.anchor = nil
+		this:Hide()
+	end)
+
+	-- Header label
+	f.header = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	f.header:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -10)
+	f.header:SetText(Guda_L["Current realm gold"])
+	f.header:SetTextColor(1, 0.82, 0)
+
+	-- Header money frame (total) — anchored to right edge, same row as header
+	f.totalMoney = CreateFrame("Frame", "Guda_MoneyTooltip_Total", f, "SmallMoneyFrameTemplate")
+	f.totalMoney:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -10)
+	DisableMoneyFrameAutoUpdate("Guda_MoneyTooltip_Total")
+
+	-- Hint text at bottom
+	f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	f.hint:SetText(Guda_L["Right-click to manage characters"])
+	f.hint:SetTextColor(0.5, 0.5, 0.5)
+
+	return f
+end
+
+local function GetOrCreateMoneyRow(index)
+	if moneyTooltipRows[index] then return moneyTooltipRows[index] end
+	local row = {}
+	local frameName = "Guda_MoneyTooltip_Row" .. index
+	row.label = moneyTooltip:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	row.money = CreateFrame("Frame", frameName, moneyTooltip, "SmallMoneyFrameTemplate")
+	DisableMoneyFrameAutoUpdate(frameName)
+	moneyTooltipRows[index] = row
+	return row
+end
+
+-- Shared money tooltip handler (used by both BagFrame and BankFrame)
+function Guda_MoneyTooltip_Show(anchor)
+	if not anchor then return end
+
+	if not moneyTooltip then
+		moneyTooltip = CreateMoneyTooltip()
+	end
+
+	-- Hide GameTooltip to avoid overlap
+	GameTooltip:Hide()
+
+	local allChars = addon.Modules.DB:GetAllCharacters(false, false) -- all realms
+	local totalMoney = 0
+
+	-- Group non-blacklisted characters by account, then by realm
+	local accounts = {} -- account -> { realms = { realm -> { chars, money } }, money, order }
+	local accountOrder = {}
+	local myAccountLabel = "Current Account"
+
+	for _, char in ipairs(allChars) do
+		if not addon.Modules.DB:IsGoldBlacklisted(char.fullName) then
+			local acctKey = char.isShared and (char.account or "Other") or myAccountLabel
+			if not accounts[acctKey] then
+				accounts[acctKey] = { realms = {}, realmOrder = {}, money = 0 }
+				table.insert(accountOrder, acctKey)
+			end
+			local acct = accounts[acctKey]
+			local realm = char.realm or "Unknown"
+			if not acct.realms[realm] then
+				acct.realms[realm] = { chars = {}, money = 0 }
+				table.insert(acct.realmOrder, realm)
+			end
+			table.insert(acct.realms[realm].chars, char)
+			acct.realms[realm].money = acct.realms[realm].money + (char.money or 0)
+			acct.money = acct.money + (char.money or 0)
+			totalMoney = totalMoney + (char.money or 0)
+		end
+	end
+
+	-- Sort: own account first, then others alphabetically
+	table.sort(accountOrder, function(a, b)
+		if a == myAccountLabel then return true end
+		if b == myAccountLabel then return false end
+		return a < b
+	end)
+	for _, acct in pairs(accounts) do
+		table.sort(acct.realmOrder)
+	end
+
+	-- Update header money
+	moneyTooltip.header:SetText(Guda_L["Total gold"])
+	MoneyFrame_Update("Guda_MoneyTooltip_Total", totalMoney)
+	FormatMoneyFrameWithCommas("Guda_MoneyTooltip_Total")
+
+	-- Layout rows
+	local rowHeight = 18
+	local padding = 10
+	local yOffset = -10 - 20 - 14  -- top padding + header height + gap
+	local rowIndex = 0
+	local hasMultipleAccounts = table.getn(accountOrder) > 1
+
+	for _, acctKey in ipairs(accountOrder) do
+		local acctData = accounts[acctKey]
+
+		-- Account header (only show if multiple accounts exist)
+		if hasMultipleAccounts then
+			rowIndex = rowIndex + 1
+			local row = GetOrCreateMoneyRow(rowIndex)
+			row.label:SetTextColor(0.5, 0.8, 1) -- light blue for account header
+			row.label:SetText(acctKey)
+			row.label:ClearAllPoints()
+			row.label:SetPoint("TOPLEFT", moneyTooltip, "TOPLEFT", padding, yOffset)
+			row.label:Show()
+
+			local frameName = "Guda_MoneyTooltip_Row" .. rowIndex
+			MoneyFrame_Update(frameName, acctData.money)
+			FormatMoneyFrameWithCommas(frameName)
+			row.money:ClearAllPoints()
+			row.money:SetPoint("TOPRIGHT", moneyTooltip, "TOPRIGHT", -padding, yOffset)
+			row.money:Show()
+
+			yOffset = yOffset - rowHeight
+		end
+
+		local indent = hasMultipleAccounts and "  " or ""
+
+		for _, realm in ipairs(acctData.realmOrder) do
+			local realmData = acctData.realms[realm]
+
+			-- Realm header row
+			rowIndex = rowIndex + 1
+			local row = GetOrCreateMoneyRow(rowIndex)
+			row.label:SetTextColor(1, 0.82, 0) -- gold color for realm header
+			row.label:SetText(indent .. realm)
+			row.label:ClearAllPoints()
+			row.label:SetPoint("TOPLEFT", moneyTooltip, "TOPLEFT", padding, yOffset)
+			row.label:Show()
+
+			local frameName = "Guda_MoneyTooltip_Row" .. rowIndex
+			MoneyFrame_Update(frameName, realmData.money)
+			FormatMoneyFrameWithCommas(frameName)
+			row.money:ClearAllPoints()
+			row.money:SetPoint("TOPRIGHT", moneyTooltip, "TOPRIGHT", -padding, yOffset)
+			row.money:Show()
+
+			yOffset = yOffset - rowHeight
+
+			-- Character rows
+			for _, char in ipairs(realmData.chars) do
+				rowIndex = rowIndex + 1
+				row = GetOrCreateMoneyRow(rowIndex)
+
+				local classToken = char.classToken
+				local classColor = classToken and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
+				local r, g, b = 0.7, 0.7, 0.7
+				if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+				row.label:SetTextColor(r, g, b)
+				row.label:SetText(indent .. "  " .. char.name)
+				row.label:ClearAllPoints()
+				row.label:SetPoint("TOPLEFT", moneyTooltip, "TOPLEFT", padding, yOffset)
+				row.label:Show()
+
+				frameName = "Guda_MoneyTooltip_Row" .. rowIndex
+				MoneyFrame_Update(frameName, char.money or 0)
+				FormatMoneyFrameWithCommas(frameName)
+				row.money:ClearAllPoints()
+				row.money:SetPoint("TOPRIGHT", moneyTooltip, "TOPRIGHT", -padding, yOffset)
+				row.money:Show()
+
+				yOffset = yOffset - rowHeight
+			end
+		end
+	end
+
+	-- Hide unused rows
+	for i = rowIndex + 1, table.getn(moneyTooltipRows) do
+		if moneyTooltipRows[i] then
+			moneyTooltipRows[i].label:Hide()
+			moneyTooltipRows[i].money:Hide()
+		end
+	end
+
+	-- Position hint
+	local hintHeight = 14
+	local hintGap = 6
+	moneyTooltip.hint:ClearAllPoints()
+	moneyTooltip.hint:SetPoint("TOPLEFT", moneyTooltip, "TOPLEFT", padding, yOffset - hintGap)
+	moneyTooltip.hint:Show()
+
+	-- Calculate frame size
+	local totalHeight = 10 + 20 + 14 + (rowIndex * rowHeight) + hintGap + hintHeight + padding
+	local maxNameWidth = moneyTooltip.header:GetStringWidth()
+	local hintWidth = moneyTooltip.hint:GetStringWidth()
+	if hintWidth > maxNameWidth then maxNameWidth = hintWidth end
+	local maxMoneyWidth = moneyTooltip.totalMoney:GetWidth()
+	for i = 1, rowIndex do
+		local row = moneyTooltipRows[i]
+		if row and row.label:IsShown() then
+			local nw = row.label:GetStringWidth()
+			if nw > maxNameWidth then maxNameWidth = nw end
+			local mw = row.money:GetWidth()
+			if mw > maxMoneyWidth then maxMoneyWidth = mw end
+		end
+	end
+	local gap = 20
+	moneyTooltip:SetWidth(maxNameWidth + gap + maxMoneyWidth + padding * 2 + 10)
+	moneyTooltip:SetHeight(totalHeight)
+
+	-- Anchor above the money frame
+	moneyTooltip:ClearAllPoints()
+	moneyTooltip:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 2)
+	moneyTooltip.anchor = anchor
+	moneyTooltip:Show()
+end
+
+function Guda_MoneyTooltip_Hide()
+	if moneyTooltip then
+		moneyTooltip.anchor = nil
+		moneyTooltip:Hide()
+	end
+end
+
+-- Confirmation dialog for character removal
+StaticPopupDialogs["GUDA_REMOVE_CHARACTER"] = {
+	text = "Remove %s from Guda tracking?\n\nThis will delete all saved data for this character.",
+	button1 = "Remove",
+	button2 = "Cancel",
+	OnAccept = function()
+		local fullName = Guda._pendingRemoveChar
+		if fullName then
+			addon.Modules.DB:RemoveCharacter(fullName)
+			Guda._pendingRemoveChar = nil
+			if moneyTooltip and moneyTooltip:IsShown() and moneyTooltip.anchor then
+				Guda_MoneyTooltip_Show(moneyTooltip.anchor)
+			end
+		end
+	end,
+	OnCancel = function()
+		Guda._pendingRemoveChar = nil
+	end,
+	timeout = 0,
+	whileDead = 1,
+	hideOnEscape = 1,
+}
+
+-- Helper: add character entries to gold tracking dropdown at given level
+local function AddGoldTrackingCharEntries(chars, level)
+	local currentPlayerFullName = addon.Modules.DB:GetPlayerFullName()
+	for _, char in ipairs(chars) do
+		local charFullName = char.fullName
+		local charName = char.name
+		local classColor = char.classToken and RAID_CLASS_COLORS[char.classToken]
+		local r, g, b = 1, 1, 1
+		if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+		-- Row 1: checkbox with character name
+		local info = {}
+		info.text = addon.Modules.Utils:ColorText(charName, r, g, b)
+		info.checked = not addon.Modules.DB:IsGoldBlacklisted(charFullName)
+		info.keepShownOnClick = 1
+		info.func = function()
+			addon.Modules.DB:ToggleGoldBlacklist(charFullName)
+			if moneyTooltip and moneyTooltip:IsShown() and moneyTooltip.anchor then
+				Guda_MoneyTooltip_Show(moneyTooltip.anchor)
+			end
+		end
+		UIDropDownMenu_AddButton(info, level)
+
+		-- Row 2: [X] Remove (indented, smaller feel, skip for current character)
+		if charFullName ~= currentPlayerFullName then
+			local del = {}
+			del.text = "     |cFF888888[|r|cFFFF4444X|r|cFF888888]|r |cFF666666Remove|r"
+			del.notCheckable = 1
+			del.func = function()
+				Guda._pendingRemoveChar = charFullName
+				CloseDropDownMenus()
+				StaticPopup_Show("GUDA_REMOVE_CHARACTER", charName)
+			end
+			UIDropDownMenu_AddButton(del, level)
+		end
+	end
+end
+
+-- Gold tracking dropdown menu (grouped by account > realm > characters)
+local function Guda_GoldTrackingMenu_Initialize()
+	local characters = addon.Modules.DB:GetAllCharacters(false, false) -- all realms
+	local myAccountLabel = "Current Account"
+
+	-- Group by account, then realm
+	local accounts = {}
+	local accountOrder = {}
+	for _, char in ipairs(characters) do
+		local acctKey = char.isShared and (char.account or "Other") or myAccountLabel
+		if not accounts[acctKey] then
+			accounts[acctKey] = { realms = {}, realmOrder = {} }
+			table.insert(accountOrder, acctKey)
+		end
+		local acct = accounts[acctKey]
+		local realm = char.realm or "Unknown"
+		if not acct.realms[realm] then
+			acct.realms[realm] = {}
+			table.insert(acct.realmOrder, realm)
+		end
+		table.insert(acct.realms[realm], char)
+	end
+
+	table.sort(accountOrder, function(a, b)
+		if a == myAccountLabel then return true end
+		if b == myAccountLabel then return false end
+		return a < b
+	end)
+	for _, acct in pairs(accounts) do
+		table.sort(acct.realmOrder)
+	end
+
+	local level = UIDROPDOWNMENU_MENU_LEVEL or 1
+
+	if level == 1 then
+		-- Level 1: "Account - Realm" combined entries (max 2 levels deep)
+		for _, acctKey in ipairs(accountOrder) do
+			local acct = accounts[acctKey]
+			for _, realm in ipairs(acct.realmOrder) do
+				local info = {}
+				if table.getn(accountOrder) > 1 then
+					info.text = acctKey .. " - " .. realm
+				else
+					info.text = realm
+				end
+				info.notCheckable = 1
+				info.hasArrow = 1
+				info.value = acctKey .. "|" .. realm
+				UIDropDownMenu_AddButton(info, 1)
+			end
+		end
+	elseif level == 2 then
+		-- Level 2: characters
+		local parentValue = UIDROPDOWNMENU_MENU_VALUE
+		local _, _, acctKey, realm = string.find(parentValue, "^(.+)|(.+)$")
+		local acct = accounts[acctKey]
+		local chars = acct and acct.realms[realm]
+		if chars then
+			AddGoldTrackingCharEntries(chars, 2)
+		end
+		Guda_ScaleDropdownFonts(12)
+	end
+end
+
+function Guda_ShowGoldTrackingMenu(anchor)
+	local menuFrame = getglobal("Guda_GoldTrackingMenu")
+	if not menuFrame then
+		menuFrame = CreateFrame("Frame", "Guda_GoldTrackingMenu", UIParent, "UIDropDownMenuTemplate")
+	end
+	UIDropDownMenu_Initialize(menuFrame, Guda_GoldTrackingMenu_Initialize, "MENU")
+	ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
+	Guda_ScaleDropdownFonts(12)
+end
+
+-- Money tooltip handler (BagFrame entry point)
+function Guda_BagFrame_MoneyOnEnter(self)
+	Guda_MoneyTooltip_Show(self)
+end
+
+-- Helper: split characters into own and shared, filtered by blacklist
+local function GetSplitCharacters(currentRealmOnly)
+	local characters = addon.Modules.DB:GetAllCharacters(false, currentRealmOnly)
+	local currentPlayerFullName = addon.Modules.DB:GetPlayerFullName()
+	local own, shared = {}, {}
+	for _, char in ipairs(characters) do
+		if not addon.Modules.DB:IsGoldBlacklisted(char.fullName) or char.fullName == currentPlayerFullName then
+			if char.isShared then
+				table.insert(shared, char)
+			else
+				table.insert(own, char)
+			end
+		end
+	end
+	return own, shared, currentPlayerFullName
+end
+
+-- Helper: add account separator header to dropdown
+local function AddAccountSeparator(label)
+	local info = {}
+	info.text = label
+	info.isTitle = 1
+	info.notCheckable = 1
+	UIDropDownMenu_AddButton(info)
+end
+
+-- Dropdown management
+local function Guda_BagCharacterMenu_Initialize()
+	local own, shared, currentPlayerFullName = GetSplitCharacters(true)
+	local currentViewChar = addon.Modules.BagFrame:GetCurrentViewChar()
+
+	for _, char in ipairs(own) do
+		local charFullName = char.fullName
+		local classColor = char.classToken and RAID_CLASS_COLORS[char.classToken]
+		local r, g, b = 1, 1, 1
+		if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+		local info = {}
+		info.text = addon.Modules.Utils:ColorText(char.name, r, g, b)
+		info.func = function()
+			if charFullName == currentPlayerFullName then
+				addon.Modules.BagFrame:ShowCurrentCharacter()
+			else
+				addon.Modules.BagFrame:ShowCharacter(charFullName)
+			end
+		end
+		info.checked = (currentViewChar == charFullName or (not currentViewChar and charFullName == currentPlayerFullName))
+		UIDropDownMenu_AddButton(info)
+	end
+
+	if table.getn(shared) > 0 then
+		AddAccountSeparator("Other Accounts")
+		for _, char in ipairs(shared) do
+			local charFullName = char.fullName
+			local classColor = char.classToken and RAID_CLASS_COLORS[char.classToken]
+			local r, g, b = 1, 1, 1
+			if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+			local info = {}
+			info.text = addon.Modules.Utils:ColorText(char.name, r, g, b)
+			info.func = function()
+				addon.Modules.BagFrame:ShowCharacter(charFullName)
+			end
+			info.checked = (currentViewChar == charFullName)
+			UIDropDownMenu_AddButton(info)
+		end
+	end
+end
+
+-- Toggle character dropdown
+function Guda_BagFrame_ToggleCharacterDropdown(button)
+	local menuFrame = getglobal("Guda_BagCharacterMenu")
+	if not menuFrame then
+		menuFrame = CreateFrame("Frame", "Guda_BagCharacterMenu", UIParent, "UIDropDownMenuTemplate")
+	end
+	UIDropDownMenu_Initialize(menuFrame, Guda_BagCharacterMenu_Initialize, "MENU")
+	ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
+	Guda_ScaleDropdownFonts(12)
+end
+
+-- Mailbox character dropdown
+local function Guda_BagMailboxMenu_Initialize()
+	local own, shared, currentPlayerFullName = GetSplitCharacters(true)
+	local mailboxViewChar = addon.Modules.MailboxFrame and addon.Modules.MailboxFrame.GetCurrentViewChar and addon.Modules.MailboxFrame:GetCurrentViewChar()
+
+	for _, char in ipairs(own) do
+		local charFullName = char.fullName
+		local classColor = char.classToken and RAID_CLASS_COLORS[char.classToken]
+		local r, g, b = 1, 1, 1
+		if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+		local info = {}
+		info.text = addon.Modules.Utils:ColorText(char.name, r, g, b)
+		info.func = function()
+			if addon.Modules.MailboxFrame and addon.Modules.MailboxFrame.ShowCharacter then
+				addon.Modules.MailboxFrame:ShowCharacter(charFullName)
+			end
+			if Guda_MailboxFrame and not Guda_MailboxFrame:IsShown() then
+				Guda_MailboxFrame:Show()
+			end
+		end
+		info.checked = (mailboxViewChar == charFullName or (not mailboxViewChar and charFullName == currentPlayerFullName))
+		UIDropDownMenu_AddButton(info)
+	end
+
+	if table.getn(shared) > 0 then
+		AddAccountSeparator("Other Accounts")
+		for _, char in ipairs(shared) do
+			local charFullName = char.fullName
+			local classColor = char.classToken and RAID_CLASS_COLORS[char.classToken]
+			local r, g, b = 1, 1, 1
+			if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+			local info = {}
+			info.text = addon.Modules.Utils:ColorText(char.name, r, g, b)
+			info.func = function()
+				if addon.Modules.MailboxFrame and addon.Modules.MailboxFrame.ShowCharacter then
+					addon.Modules.MailboxFrame:ShowCharacter(charFullName)
+				end
+				if Guda_MailboxFrame and not Guda_MailboxFrame:IsShown() then
+					Guda_MailboxFrame:Show()
+				end
+			end
+			info.checked = (mailboxViewChar == charFullName)
+			UIDropDownMenu_AddButton(info)
+		end
+	end
+end
+
+-- Toggle mail dropdown
+function Guda_BagFrame_ToggleMailDropdown(button)
+	local menuFrame = getglobal("Guda_BagMailboxMenu")
+	if not menuFrame then
+		menuFrame = CreateFrame("Frame", "Guda_BagMailboxMenu", UIParent, "UIDropDownMenuTemplate")
+	end
+	UIDropDownMenu_Initialize(menuFrame, Guda_BagMailboxMenu_Initialize, "MENU")
+	ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
+	Guda_ScaleDropdownFonts(12)
+end
+
+-- Bank character dropdown
+local function Guda_BagBankMenu_Initialize()
+	local own, shared, currentPlayerFullName = GetSplitCharacters(true)
+	local bankViewChar = addon.Modules.BankFrame:GetCurrentViewChar()
+
+	for _, char in ipairs(own) do
+		local charFullName = char.fullName
+		local charName = char.name
+		local classColor = char.classToken and RAID_CLASS_COLORS[char.classToken]
+		local r, g, b = 1, 1, 1
+		if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+		local info = {}
+		info.text = addon.Modules.Utils:ColorText(charName, r, g, b)
+		info.func = function()
+			Guda_BagFrame_ShowCharacterBank(charFullName, charName)
+		end
+		info.checked = (bankViewChar == charFullName or (not bankViewChar and charFullName == currentPlayerFullName))
+		UIDropDownMenu_AddButton(info)
+	end
+
+	if table.getn(shared) > 0 then
+		AddAccountSeparator("Other Accounts")
+		for _, char in ipairs(shared) do
+			local charFullName = char.fullName
+			local charName = char.name
+			local classColor = char.classToken and RAID_CLASS_COLORS[char.classToken]
+			local r, g, b = 1, 1, 1
+			if classColor then r, g, b = classColor.r, classColor.g, classColor.b end
+
+			local info = {}
+			info.text = addon.Modules.Utils:ColorText(charName, r, g, b)
+			info.func = function()
+				Guda_BagFrame_ShowCharacterBank(charFullName, charName)
+			end
+			info.checked = (bankViewChar == charFullName)
+			UIDropDownMenu_AddButton(info)
+		end
+	end
+end
+
+-- Toggle bank dropdown
+function Guda_BagFrame_ToggleBankDropdown(button)
+	local menuFrame = getglobal("Guda_BagBankMenu")
+	if not menuFrame then
+		menuFrame = CreateFrame("Frame", "Guda_BagBankMenu", UIParent, "UIDropDownMenuTemplate")
+	end
+	UIDropDownMenu_Initialize(menuFrame, Guda_BagBankMenu_Initialize, "MENU")
+	ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
+	Guda_ScaleDropdownFonts(12)
+end
+
+-- Show character's bank
+function Guda_BagFrame_ShowCharacterBank(fullName, displayName)
+-- Use the existing BankFrame module
+	if not addon.Modules.BankFrame then
+		addon:Print("Bank frame module not available")
+		return
+	end
+
+	-- Position bank frame at center of screen
+	if Guda_BankFrame then
+		Guda_BankFrame:ClearAllPoints()
+		Guda_BankFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	end
+
+	-- Show the character's bank
+	addon.Modules.BankFrame:ShowCharacter(fullName)
+
+	-- Make sure frame is shown
+	if Guda_BankFrame then
+		Guda_BankFrame:Show()
+	end
+end
+
+-- Clear search and restore placeholder
+function Guda_BagFrame_ClearSearch()
+	local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+	if searchBox then
+		searchBox:SetText(Guda_L["Search, try ~equipment"])
+		searchBox:SetTextColor(0.5, 0.5, 0.5, 1)
+		searchBox:ClearFocus()
+	end
+
+	-- Reset search state
+	searchText = ""
+	BagFrame.foundFirstMatch = false
+	BagFrame.warnedAboutParsing = false
+	BagFrame.warnedAboutNoName = false
+
+	-- Update display
+	BagFrame:Update()
+end
+
+-- Queue a one-shot warmup of Utils:GetTooltipText for every occupied bag
+-- slot currently visible. Runs once per session the first time the user
+-- types a ~t: query — subsequent keystrokes hit warm cache and filter
+-- instantly. Frame-budgeted via Utils:QueueWork so typing stays responsive.
+local tooltipTextWarmed = false
+local function WarmTooltipTextCache()
+	if tooltipTextWarmed then return end
+	tooltipTextWarmed = true
+	local Utils = addon.Modules.Utils
+	if not Utils or not Utils.QueueWork or not Utils.GetTooltipText then return end
+	for bagID = 0, 4 do
+		local numSlots = GetContainerNumSlots(bagID)
+		if numSlots and numSlots > 0 then
+			for slotID = 1, numSlots do
+				local link = GetContainerItemLink(bagID, slotID)
+				if link then
+					local b, s, l = bagID, slotID, link
+					Utils:QueueWork(function()
+						Utils:GetTooltipText(b, s, l)
+					end, "tooltipTextSearchWarmup")
+				end
+			end
+		end
+	end
+end
+
+-- Search changed handler
+function Guda_BagFrame_OnSearchChanged(self)
+	local text = self:GetText()
+	-- Ignore placeholder text
+	if text == Guda_L["Search, try ~equipment"] then
+		text = ""
+	end
+	if text ~= searchText then
+		searchText = text
+		BagFrame.foundFirstMatch = false  -- Reset debug flags
+		BagFrame.warnedAboutParsing = false
+		BagFrame.warnedAboutNoName = false
+		-- Kick off a one-time tooltip-text warmup if the query uses ~t:.
+		-- string.find returns nil when pattern is absent; plain=true to match
+		-- "~t:" literally (no magic chars in the pattern).
+		if string.find(text, "~t:", 1, true) then
+			WarmTooltipTextCache()
+		end
+		BagFrame:Update()
+	end
+end
+
+-- Keyring toggle handler
+function Guda_BagFrame_ToggleKeyring()
+	showKeyring = not showKeyring
+
+	-- Update button appearance to show toggle state
+	local button = getglobal("Guda_BagFrame_Toolbar_KeyringButton")
+	if button then
+		if showKeyring then
+			-- Gold border when active
+			button:SetBackdropBorderColor(1, 0.82, 0, 1)
+		else
+			-- Restore theme border when inactive
+			local fb = addon.Modules.Theme:GetValue("footerButtonBorder") or { 0.30, 0.30, 0.30, 1 }
+			button:SetBackdropBorderColor(fb[1], fb[2], fb[3], fb[4])
+		end
+	end
+
+	-- Refresh display
+	BagFrame:Update()
+end
+
+-- Soul Bag toggle handler
+function Guda_BagFrame_ToggleSoulBag()
+	showSoulBag = not showSoulBag
+
+	-- Update button appearance to show toggle state
+	local button = getglobal("Guda_BagFrame_Toolbar_SoulBagButton")
+	if button then
+		if showSoulBag then
+			-- Gold border when active
+			button:SetBackdropBorderColor(1, 0.82, 0, 1)
+		else
+			-- Restore theme border when inactive
+			local fb = addon.Modules.Theme:GetValue("footerButtonBorder") or { 0.30, 0.30, 0.30, 1 }
+			button:SetBackdropBorderColor(fb[1], fb[2], fb[3], fb[4])
+		end
+	end
+
+	-- Refresh display
+	BagFrame:Update()
+end
+
+-- Update soul shard count on the soul bag button
+function Guda_BagFrame_UpdateSoulBagCount()
+	local button = getglobal("Guda_BagFrame_Toolbar_SoulBagButton")
+	if not button or not button:IsShown() then return end
+
+	local count = 0
+	for _, bagID in ipairs(addon.Constants.BAGS) do
+		local bagType = addon.Modules.Utils:GetSpecializedBagType(bagID)
+		if bagType == "soul" then
+			local numSlots = addon.Modules.Utils:GetBagSlotCount(bagID)
+			for slotID = 1, numSlots do
+				local texture, itemCount = GetContainerItemInfo(bagID, slotID)
+				if texture then
+					count = count + (itemCount or 1)
+				end
+			end
+		end
+	end
+
+	button.soulShardCount = count
+	if button.countText then
+		if count > 0 then
+			button.countText:SetText(tostring(count))
+			button.countText:Show()
+		else
+			button.countText:SetText("")
+			button.countText:Hide()
+		end
+	end
+end
+
+function Guda_BagFrame_Sort()
+	if currentViewChar then
+		addon:Print(Guda_L["Cannot sort another character's bags!"])
+		return
+	end
+
+	-- Check if we're in category view - restack and clean
+	local sortBtn = getglobal("Guda_BagFrame_SortButton")
+	if sortBtn and sortBtn.isCategoryView then
+		Guda_BagFrame_MergeStacks()
+		return
+	end
+
+ local success, message = addon.Modules.SortEngine:ExecuteSort(
+        function() return addon.Modules.SortEngine:SortBagsPass() end,
+        function() return addon.Modules.SortEngine:AnalyzeBags() end,
+        function() BagFrame:Update() end,
+        "bags"
+    )
+
+	if not success and message == "already sorted" then
+		addon:Print(Guda_L["Bags are already sorted!"])
+	end
+end
+
+-- Restack and Clean (for category view) - merges stacks and refreshes view
+-- Queue-based approach
+function Guda_BagFrame_MergeStacks()
+	if currentViewChar then
+		addon:Print("Cannot restack for another character!")
+		return
+	end
+
+	-- Check if sorting is already in progress
+	if addon.Modules.SortEngine.sortingInProgress then
+		addon:Print(Guda_L["Sorting already in progress, please wait..."])
+		return
+	end
+
+	local bagIDs = addon.Constants.BAGS
+	local moveQueue = {}
+
+	-- Collect all partial stacks grouped by item
+	local partialStacks = {}
+	for _, bagID in ipairs(bagIDs) do
+		local numSlots = addon.Modules.Utils:GetBagSlotCount(bagID)
+		if numSlots and numSlots > 0 then
+			for slot = 1, numSlots do
+				local link = GetContainerItemLink(bagID, slot)
+				if link then
+					local texture, count = GetContainerItemInfo(bagID, slot)
+					local _, _, itemID = string.find(link, "item:(%d+)")
+					itemID = tonumber(itemID)
+					
+					if itemID then
+						local _, _, _, _, _, _, _, itemStackCount = Guda.GetItemInfo(itemID)
+						local maxStack = tonumber(itemStackCount) or 1
+						
+						-- Only track items that can stack and aren't full
+						if maxStack > 1 and count < maxStack then
+							local groupKey = tostring(itemID)
+							if not partialStacks[groupKey] then
+								partialStacks[groupKey] = {
+									maxStack = maxStack,
+									stacks = {}
+								}
+							end
+							table.insert(partialStacks[groupKey].stacks, {
+								bagID = bagID,
+								slot = slot,
+								count = count
+							})
+						end
+					end
+				end
+			end
+		end
+	end
+
+	-- Build move queue for each item group
+	for _, group in pairs(partialStacks) do
+		if table.getn(group.stacks) > 1 then
+			-- Sort stacks: larger stacks first (targets), smaller stacks last (sources)
+			table.sort(group.stacks, function(a, b)
+				if not a then return false end
+				if not b then return true end
+				return (a.count or 0) > (b.count or 0)
+			end)
+
+			local sourceLoopStart = table.getn(group.stacks)
+
+			-- Process targets from start, sources from end
+			for targetIdx = 1, table.getn(group.stacks) - 1 do
+				local target = group.stacks[targetIdx]
+				
+				if target.count < group.maxStack and target.count > 0 then
+					for sourceIdx = sourceLoopStart, targetIdx + 1, -1 do
+						local source = group.stacks[sourceIdx]
+						
+						if source.count > 0 and target.count < group.maxStack then
+							-- Queue this move
+							table.insert(moveQueue, {
+								source = source,
+								target = target,
+								maxStack = group.maxStack
+							})
+							
+							-- Calculate changes (for queue planning)
+							local oldTargetCount = target.count
+							target.count = math.min(target.count + source.count, group.maxStack)
+							source.count = source.count - (target.count - oldTargetCount)
+							
+							-- Move source pointer if depleted
+							if source.count == 0 then
+								sourceLoopStart = sourceLoopStart - 1
+							end
+							
+							-- Stop if target is full
+							if target.count >= group.maxStack then
+								break
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if table.getn(moveQueue) == 0 then
+		-- No stacks to merge — clear placeholders and refresh view
+		BagFrame:ClearRecentlyEmptiedSlots()
+		-- Clear item detection cache to force fresh tooltip scans
+		if addon.Modules.ItemDetection and addon.Modules.ItemDetection.ClearCache then
+			addon.Modules.ItemDetection:ClearCache()
+		end
+		BagFrame:Update()
+		addon:Print("View refreshed (no stacks to merge)")
+		return
+	end
+
+	-- Set sorting flag and update button appearance
+	addon.Modules.SortEngine.sortingInProgress = true
+	addon.Modules.SortEngine:UpdateSortButtonState(true)
+
+	-- Process queue with delays
+	local queueIndex = 1
+	local retryCount = 0
+	local totalMoves = table.getn(moveQueue)
+	
+	local function ProcessNextMove()
+		if queueIndex > table.getn(moveQueue) then
+			addon.Modules.SortEngine.sortingInProgress = false
+			addon.Modules.SortEngine:UpdateSortButtonState(false)
+			-- Clear placeholders and item detection cache
+			BagFrame:ClearRecentlyEmptiedSlots()
+			if addon.Modules.ItemDetection and addon.Modules.ItemDetection.ClearCache then
+				addon.Modules.ItemDetection:ClearCache()
+			end
+			-- Refresh the view
+			BagFrame:Update()
+			addon:Print(format(Guda_L["Restacked %d stack(s)"], totalMoves))
+			return
+		end
+		
+		local move = moveQueue[queueIndex]
+		local source = move.source
+		local target = move.target
+		
+		-- Check if items are locked
+		local _, _, sourceLocked = GetContainerItemInfo(source.bagID, source.slot)
+		local _, _, targetLocked = GetContainerItemInfo(target.bagID, target.slot)
+		
+		if sourceLocked or targetLocked then
+			retryCount = retryCount + 1
+			if retryCount < 10 then
+				-- Retry after delay
+				Guda_ScheduleTimer(0.3, ProcessNextMove)
+				return
+			else
+				-- Give up on this move
+				retryCount = 0
+				queueIndex = queueIndex + 1
+				Guda_ScheduleTimer(0.1, ProcessNextMove)
+				return
+			end
+		end
+		
+		-- Perform the move
+		ClearCursor()
+		PickupContainerItem(source.bagID, source.slot)
+		PickupContainerItem(target.bagID, target.slot)
+		ClearCursor()
+		
+		-- Move to next
+		retryCount = 0
+		queueIndex = queueIndex + 1
+		Guda_ScheduleTimer(0.15, ProcessNextMove)
+	end
+	
+	ProcessNextMove()
+end
+
+-- NOTE: Guda_ScheduleTimer is defined in Core/Utils.lua (loaded earlier)
+-- to ensure it's available for all modules that need timers
+
+-- Hook bag container buttons to open Guda Bag View
+local function HookBagContainers()
+-- Hook the main bag container buttons (bags 1-4)
+	for i = 1, 4 do
+		local buttonName = "CharacterBag"..i.."Slot"
+		local button = getglobal(buttonName)
+
+		if button then
+			local bagID = i
+			local originalOnClick = button:GetScript("OnClick")
+			button:SetScript("OnClick", function()
+				local mouseButton = arg1 or "LeftButton" -- Vanilla uses global arg1
+				if mouseButton == "LeftButton" then
+					-- If cursor has an item, try bag replacement instead of toggle
+					if CursorHasItem and CursorHasItem() then
+						local invSlot = ContainerIDToInventoryID(bagID)
+						Guda_TryEquipBagOnSlot(bagID, invSlot, nil)
+					else
+						BagFrame:Toggle()
+					end
+				else
+				-- Allow right-click and other buttons to work normally
+					if originalOnClick then
+						originalOnClick()
+					end
+				end
+			end)
+
+			-- Hook OnReceiveDrag for drag-drop bag replacement
+			button:SetScript("OnReceiveDrag", function()
+				if CursorHasItem and CursorHasItem() then
+					local invSlot = ContainerIDToInventoryID(bagID)
+					Guda_TryEquipBagOnSlot(bagID, invSlot, nil)
+				end
+			end)
+		end
+	end
+
+	-- Also hook the backpack button
+	local backpackButton = getglobal("MainMenuBarBackpackButton")
+	if backpackButton then
+		local originalOnClick = backpackButton:GetScript("OnClick")
+		backpackButton:SetScript("OnClick", function()
+			local mouseButton = arg1 or "LeftButton" -- Vanilla uses global arg1
+			if mouseButton == "LeftButton" then
+			-- Open Guda Bag View instead of default bag
+				BagFrame:Toggle()
+			else
+			-- Allow right-click and other buttons to work normally
+				if originalOnClick then
+					originalOnClick()
+				end
+			end
+		end)
+	end
+
+	-- Hook keyring button if it exists
+	local keyringButton = getglobal("KeyRingButton")
+	if keyringButton then
+		local originalOnClick = keyringButton:GetScript("OnClick")
+		keyringButton:SetScript("OnClick", function()
+			local mouseButton = arg1 or "LeftButton" -- Vanilla uses global arg1
+			if mouseButton == "LeftButton" then
+			-- Toggle keyring in Guda Bag View
+				Guda_BagFrame_ToggleKeyring()
+				BagFrame:Toggle() -- Also open the bag frame
+			else
+			-- Allow right-click and other buttons to work normally
+				if originalOnClick then
+					originalOnClick()
+				end
+			end
+		end)
+	end
+end
+
+-- Alternative approach: Completely replace the bag open functions
+local function ReplaceBagOpenFunctions()
+-- Override OpenBag (if it exists)
+	if OpenBag then
+		local originalOpenBag = OpenBag
+		function OpenBag(bagId)
+			if bagId and bagId >= 0 and bagId <= 4 then
+			-- For regular bags, open Guda Bag View
+				BagFrame:Toggle()
+			else
+			-- For other containers, use original function
+				if originalOpenBag then
+					originalOpenBag(bagId)
+				end
+			end
+		end
+	end
+
+	-- Override ToggleBag (if it exists)
+	if ToggleBag then
+		local originalToggleBag = ToggleBag
+		function ToggleBag(bagId)
+			if bagId and bagId >= 0 and bagId <= 4 then
+			-- For regular bags, toggle Guda Bag View
+				BagFrame:Toggle()
+			else
+			-- For other containers, use original function
+				if originalToggleBag then
+					originalToggleBag(bagId)
+				end
+			end
+		end
+	end
+end
+
+-- Hook to default bag opening
+local function HookDefaultBags()
+-- Override ToggleBackpack (if it exists)
+	if ToggleBackpack then
+		local originalToggleBackpack = ToggleBackpack
+		function ToggleBackpack()
+			BagFrame:Toggle()
+
+			-- Force disable pfUI bags if enabled
+			if pfUI and pfUI.bag and pfUI.bag.right and pfUI.bag.right.Hide then
+				pfUI.bag.right:Hide()
+			end
+		end
+	end
+
+	-- Override OpenAllBags (if it exists)
+	if OpenAllBags then
+		local originalOpenAllBags = OpenAllBags
+		function OpenAllBags()
+			Guda_BagFrame:Show()
+
+			-- Force disable pfUI bags if enabled
+			if pfUI and pfUI.bag and pfUI.bag.right and pfUI.bag.right.Hide then
+				pfUI.bag.right:Hide()
+			end
+		end
+	end
+
+	-- Override CloseAllBags (if it exists)
+	if CloseAllBags then
+		local originalCloseAllBags = CloseAllBags
+		function CloseAllBags()
+			-- Do not auto-close our bags when interacting with a vendor
+			if isMerchantOpen then
+				return
+			end
+			Guda_BagFrame:Hide()
+		end
+	end
+
+	-- WotLK 3.3.5 also reaches the backpack through OpenBackpack/CloseBackpack
+	-- (vendor, mail, trade workflows) so route them through our frame too.
+	if OpenBackpack then
+		function OpenBackpack()
+			if Guda_BagFrame and not Guda_BagFrame:IsShown() then
+				Guda_BagFrame:Show()
+			end
+		end
+	end
+
+	if CloseBackpack then
+		function CloseBackpack()
+			if isMerchantOpen then
+				return
+			end
+			if Guda_BagFrame and Guda_BagFrame:IsShown() then
+				Guda_BagFrame:Hide()
+			end
+		end
+	end
+
+	-- CloseBag(id) is used by several system flows (auction close, etc.)
+	if CloseBag then
+		local originalCloseBag = CloseBag
+		function CloseBag(bagId)
+			if bagId and bagId >= 0 and bagId <= 4 then
+				if isMerchantOpen then
+					return
+				end
+				if Guda_BagFrame and Guda_BagFrame:IsShown() then
+					Guda_BagFrame:Hide()
+				end
+			else
+				if originalCloseBag then
+					originalCloseBag(bagId)
+				end
+			end
+		end
+	end
+
+	-- Hook individual bag opening functions (for bag slot buttons)
+	ReplaceBagOpenFunctions()
+
+	-- Hook the bag slot button clicks directly
+	HookBagContainers()
+end
+
+-- Update lock state (controls whether frame is draggable)
+function BagFrame:UpdateLockState()
+-- Safety check: ensure addon and modules exist
+	if not addon or not addon.Modules then return end
+
+	local frame = getglobal("Guda_BagFrame")
+	if not frame then return end
+
+	-- Check if DB module is available
+	if not addon.Modules.DB or not addon.Modules.DB.GetSetting then return end
+
+	local success, isLocked = pcall(function()
+		return addon.Modules.DB:GetSetting("lockBags")
+	end)
+
+	if not success then return end
+
+	if isLocked == nil then
+		isLocked = false
+	end
+
+	-- Get draggable areas
+	local toolbar = getglobal("Guda_BagFrame_Toolbar")
+	local moneyFrame = getglobal("Guda_BagFrame_MoneyFrame")
+	local itemContainer = getglobal("Guda_BagFrame_ItemContainer")
+
+	if isLocked then
+	-- Disable dragging on main frame
+		if frame.SetScript then
+			frame:SetScript("OnMouseDown", function()
+				local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+				if searchBox then
+					searchBox:ClearFocus()
+				end
+			end)
+			frame:SetScript("OnMouseUp", nil)
+		end
+
+		-- Disable dragging on toolbar
+		if toolbar and toolbar.SetScript then
+			toolbar:SetScript("OnMouseDown", function()
+				local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+				if searchBox then
+					searchBox:ClearFocus()
+				end
+			end)
+			toolbar:SetScript("OnMouseUp", nil)
+		end
+
+		-- Disable dragging on money frame (preserve tooltip handlers on child buttons)
+		if moneyFrame and moneyFrame.SetScript then
+			moneyFrame:SetScript("OnMouseDown", function()
+				local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+				if searchBox then
+					searchBox:ClearFocus()
+				end
+			end)
+			moneyFrame:SetScript("OnMouseUp", nil)
+		end
+
+		-- Disable dragging on item container
+		if itemContainer and itemContainer.SetScript then
+			itemContainer:SetScript("OnMouseDown", function()
+				local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+				if searchBox then
+					searchBox:ClearFocus()
+				end
+			end)
+			itemContainer:SetScript("OnMouseUp", nil)
+		end
+	else
+	-- Enable dragging on main frame
+		if frame and frame.SetScript then
+			frame:SetScript("OnMouseDown", function()
+				local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+				if searchBox then
+					searchBox:ClearFocus()
+				end
+
+				if arg1 == "LeftButton" then
+					BeginFrameMove()
+				end
+			end)
+			frame:SetScript("OnMouseUp", function()
+				EndFrameMove()
+			end)
+		end
+
+		-- Enable dragging on toolbar (title area)
+		if toolbar and toolbar.SetScript then
+			toolbar:SetScript("OnMouseDown", function()
+				local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+				if searchBox then
+					searchBox:ClearFocus()
+				end
+
+				if arg1 == "LeftButton" then
+					BeginFrameMove()
+				end
+			end)
+			toolbar:SetScript("OnMouseUp", function()
+				EndFrameMove()
+			end)
+		end
+
+		-- Enable dragging on money frame (preserve tooltip handlers on child buttons)
+		if moneyFrame and moneyFrame.SetScript then
+			moneyFrame:SetScript("OnMouseDown", function()
+				local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+				if searchBox then
+					searchBox:ClearFocus()
+				end
+
+				if arg1 == "LeftButton" then
+					BeginFrameMove()
+				end
+			end)
+			moneyFrame:SetScript("OnMouseUp", function()
+				EndFrameMove()
+			end)
+		end
+
+		-- Enable dragging on item container
+		if itemContainer and itemContainer.SetScript then
+			itemContainer:SetScript("OnMouseDown", function()
+				local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+				if searchBox then
+					searchBox:ClearFocus()
+				end
+
+				if arg1 == "LeftButton" then
+					BeginFrameMove()
+				end
+			end)
+			itemContainer:SetScript("OnMouseUp", function()
+				EndFrameMove()
+			end)
+		end
+	end
+end
+
+-- Update border visibility based on setting
+function BagFrame:UpdateBorderVisibility()
+	if not addon or not addon.Modules or not addon.Modules.DB then return end
+
+	local frame = getglobal("Guda_BagFrame")
+	if not frame then return end
+
+	-- Use Theme module if available
+	if addon.Modules.Theme then
+		addon.Modules.Theme:ApplyToFrame(frame)
+		return
+	end
+
+	local hideBorders = addon.Modules.DB:GetSetting("hideBorders")
+	if hideBorders == nil then
+		hideBorders = false
+	end
+
+	-- Use helper function with constants
+	if hideBorders then
+		addon:ApplyBackdrop(frame, "MINIMALIST_BORDER", "DEFAULT")
+	else
+		addon:ApplyBackdrop(frame, "DEFAULT_FRAME", "DEFAULT")
+	end
+end
+
+-- Update search bar visibility based on setting
+-- Reads the three-state searchBarMode setting.
+-- Returns one of "shown", "hidden", "toggle". Falls back to the legacy
+-- boolean showSearchBar if the new setting isn't set yet.
+local function GetSearchBarMode()
+	if not addon or not addon.Modules or not addon.Modules.DB then return "shown" end
+	local mode = addon.Modules.DB:GetSetting("searchBarMode")
+	if mode == "shown" or mode == "hidden" or mode == "toggle" then
+		return mode
+	end
+	local legacy = addon.Modules.DB:GetSetting("showSearchBar")
+	if legacy == false then return "hidden" end
+	return "shown"
+end
+
+function BagFrame:UpdateSearchBarVisibility()
+	if not addon or not addon.Modules or not addon.Modules.DB then return end
+
+	local searchBar     = getglobal("Guda_BagFrame_SearchBar")
+	local itemContainer = getglobal("Guda_BagFrame_ItemContainer")
+	local toggleBtn     = getglobal("Guda_BagFrame_SearchToggleButton")
+	if not searchBar or not itemContainer then return end
+
+	local mode = GetSearchBarMode()
+	local effectiveShown
+	if mode == "shown" then
+		effectiveShown = true
+	elseif mode == "hidden" then
+		effectiveShown = false
+	else  -- "toggle"
+		effectiveShown = self.searchBarExpanded and true or false
+	end
+
+	if effectiveShown then
+		searchBar:Show()
+		itemContainer:ClearAllPoints()
+		itemContainer:SetPoint("TOP", searchBar, "BOTTOM", 0, -5)
+	else
+		searchBar:Hide()
+		itemContainer:ClearAllPoints()
+		itemContainer:SetPoint("TOP", "Guda_BagFrame", "TOP", 0, -40)
+	end
+
+	if toggleBtn then
+		if mode == "toggle" then toggleBtn:Show() else toggleBtn:Hide() end
+	end
+end
+
+-- Toggle the search bar's expanded state (only meaningful in "toggle" mode).
+function BagFrame:ToggleSearchBar()
+	local mode = GetSearchBarMode()
+	if mode ~= "toggle" then return end  -- no-op in shown/hidden modes
+
+	self.searchBarExpanded = not (self.searchBarExpanded and true or false)
+	self:UpdateSearchBarVisibility()
+
+	local searchBox = getglobal("Guda_BagFrame_SearchBar_SearchBox")
+	if self.searchBarExpanded then
+		if searchBox then searchBox:SetFocus() end
+	else
+		if searchBox then
+			searchBox:SetText("")
+			searchBox:ClearFocus()
+			if Guda_BagFrame_OnSearchChanged then
+				Guda_BagFrame_OnSearchChanged(searchBox)
+			end
+		end
+	end
+
+	if BagFrame.Update then BagFrame:Update() end
+end
+
+-- Update footer visibility based on settings
+function BagFrame:UpdateFooterVisibility()
+	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
+	local toolbar = getglobal("Guda_BagFrame_Toolbar")
+	local moneyFrame = getglobal("Guda_BagFrame_MoneyFrame")
+	local hearthstoneFrame = getglobal("Guda_BagFrame_HearthstoneFrame")
+	local disenchantFrame = getglobal("Guda_BagFrame_DisenchantFrame")
+	local lockpickFrame = getglobal("Guda_BagFrame_LockpickFrame")
+
+	if hideFooter then
+		if toolbar then toolbar:Hide() end
+		if moneyFrame then moneyFrame:Hide() end
+		if hearthstoneFrame then hearthstoneFrame:Hide() end
+		if disenchantFrame then disenchantFrame:Hide() end
+		if lockpickFrame then lockpickFrame:Hide() end
+	else
+		if toolbar then toolbar:Show() end
+		if moneyFrame then moneyFrame:Show() end
+		if hearthstoneFrame then hearthstoneFrame:Show() end
+
+		-- Trigger layout updates to ensure they are correctly positioned
+		self:UpdateBaglineLayout()
+		self:UpdateMoney()
+		self:UpdateHearthstone()
+		self:UpdateDisenchant()
+		self:UpdateLockpick()
+	end
+end
+
+-- Bag Slot Button Handlers
+
+-- Apply footer button backdrop styling
+function Guda_BagSlot_ApplyBackdrop(button)
+	local Theme = addon.Modules.Theme
+	local qStyle = Theme:GetQualityBorderStyle()
+	if qStyle == "square" then
+		button:SetBackdrop({
+			bgFile = "Interface\\Buttons\\WHITE8x8",
+			edgeFile = "Interface\\Buttons\\WHITE8x8",
+			edgeSize = 1,
+			insets = { left = -1, right = -1, top = -1, bottom = -1 },
+		})
+	else
+		button:SetBackdrop({
+			bgFile = "Interface\\Buttons\\WHITE8x8",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			edgeSize = 8,
+			insets = { left = 2, right = 2, top = 2, bottom = 2 },
+		})
+	end
+	local fbBg = Theme:GetValue("footerButtonBg") or { 0.12, 0.12, 0.12, 1 }
+	local fbBorder = Theme:GetValue("footerButtonBorder") or { 0.30, 0.30, 0.30, 1 }
+	button:SetBackdropColor(fbBg[1], fbBg[2], fbBg[3], fbBg[4])
+	button:SetBackdropBorderColor(fbBorder[1], fbBorder[2], fbBorder[3], fbBorder[4])
+end
+
+-- Try to equip a bag from cursor onto a bag slot, auto-replacing if occupied
+Guda_TryEquipBagOnSlot = function(bagID, invSlot, button)
+	if not CursorHasItem or not CursorHasItem() then return end
+
+	-- Check if current bag has items
+	local numSlots = GetContainerNumSlots(bagID)
+	local hasItems = false
+	if numSlots and numSlots > 0 then
+		for slot = 1, numSlots do
+			local texture = GetContainerItemInfo(bagID, slot)
+			if texture then hasItems = true; break end
+		end
+	end
+
+	if hasItems and addon.Modules.BagReplacer then
+		addon.Modules.BagReplacer:Execute(bagID, invSlot)
+		return -- BagReplacer handles its own UI updates
+	end
+
+	-- Empty bag or no bag — standard equip, then delayed refresh
+	if EquipCursorItem then
+		EquipCursorItem(invSlot)
+	elseif PutItemInBag then
+		PutItemInBag(invSlot)
+	end
+
+	if button then Guda_BagSlot_Update(button, bagID) end
+
+	-- Delay the UI refresh so the server has time to process the bag equip
+	-- (GetContainerNumSlots won't reflect the new bag size immediately)
+	Guda_ScheduleTimer(0.3, function()
+		if addon.Modules.BagScanner and addon.Modules.BagScanner.InvalidateCache then
+			addon.Modules.BagScanner:InvalidateCache()
+		end
+		if BagFrame and BagFrame.Update then BagFrame:Update() end
+	end)
+end
+
+-- OnLoad handler for bag slot buttons
+function Guda_BagSlot_OnLoad(button, bagID)
+-- Hide borders from ItemButtonTemplate
+	local buttonName = button:GetName()
+
+	-- Hide the normal texture border
+	local normalTexture = getglobal(buttonName .. "NormalTexture")
+	if normalTexture then
+		normalTexture:SetTexture(nil)
+		normalTexture:Hide()
+	end
+
+	-- Hide icon border
+	local iconBorder = getglobal(buttonName .. "IconBorder")
+	if iconBorder then
+		iconBorder:Hide()
+	end
+
+	-- Apply footer button backdrop
+	Guda_BagSlot_ApplyBackdrop(button)
+
+	-- Set up the button with proper ID
+	if bagID == 0 then
+	-- Backpack (bag 0)
+		button.bagID = 0
+		button.hasItem = 1
+		local hideBagline = addon.Modules.DB:GetSetting("hideBagline")
+		if hideBagline then
+			SetItemButtonTexture(button, "Interface\\AddOns\\GudaBags\\Assets\\bags")
+		else
+			SetItemButtonTexture(button, "Interface\\Buttons\\Button-Backpack-Up")
+		end
+	else
+	-- Bags 1-4
+		local invSlot = ContainerIDToInventoryID(bagID)
+		button:SetID(invSlot)
+		button.bagID = bagID
+
+		-- REGISTER FOR DRAG - This is crucial for Classic
+		button:RegisterForDrag("LeftButton")
+
+		-- Register for updates
+		button:RegisterEvent("BAG_UPDATE")
+		button:RegisterEvent("ITEM_LOCK_CHANGED")
+		button:RegisterEvent("CURSOR_UPDATE")
+		button:RegisterEvent("UNIT_INVENTORY_CHANGED")
+
+		-- Accept drops (equip when a bag is dropped on this slot)
+		button:SetScript("OnReceiveDrag", function()
+			if this and this.bagID and this.bagID ~= 0 and CursorHasItem and CursorHasItem() then
+				local inv = ContainerIDToInventoryID(this.bagID)
+				Guda_TryEquipBagOnSlot(this.bagID, inv, this)
+			end
+		end)
+	end
+
+	-- Ensure we handle right-click toggling like BankFrame
+	if button.RegisterForClicks then
+		button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	end
+
+	-- Initial update
+	Guda_BagSlot_Update(button, bagID)
+end
+
+function Guda_BagSlot_OnDragStart(frame, bagID)
+	if bagID == 0 then return end
+
+	-- Check if we should start dragging (only if there's an item)
+	local invSlot = ContainerIDToInventoryID(bagID)
+	local texture = GetInventoryItemTexture("player", invSlot)
+
+	if texture then
+		frame:SetAlpha(0.6)
+		-- Immediate pickup for Classic
+		PickupInventoryItem(invSlot)
+		-- Instantly reflect the change in UI (slot is now empty on cursor pickup)
+		Guda_BagSlot_Update(frame, bagID)
+		if BagFrame and BagFrame.Update then BagFrame:Update() end
+	end
+-- If no texture (empty slot), do nothing - drag won't start
+end
+
+function Guda_BagSlot_OnDragStop(frame, bagID)
+	frame:SetAlpha(1.0)
+end
+
+-- Update bag slot button texture
+function Guda_BagSlot_Update(button, bagID)
+	local isHidden = hiddenBags[bagID]
+
+	if bagID == 0 then
+	-- Backpack texture depends on bagline setting
+		local hideBagline = addon.Modules.DB:GetSetting("hideBagline")
+		if hideBagline then
+			SetItemButtonTexture(button, "Interface\\AddOns\\GudaBags\\Assets\\bags")
+		else
+			SetItemButtonTexture(button, "Interface\\Buttons\\Button-Backpack-Up")
+		end
+		-- Dim if hidden
+		if isHidden then
+			SetItemButtonTextureVertexColor(button, 0.4, 0.4, 0.4)
+		else
+			SetItemButtonTextureVertexColor(button, 1.0, 1.0, 1.0)
+		end
+		return
+	end
+
+	-- Get the inventory slot ID for this bag
+	local invSlot = ContainerIDToInventoryID(bagID)
+	local texture = GetInventoryItemTexture("player", invSlot)
+
+	if texture then
+	-- Bag is equipped
+		SetItemButtonTexture(button, texture)
+		-- Dim if hidden
+		if isHidden then
+			SetItemButtonTextureVertexColor(button, 0.4, 0.4, 0.4)
+		else
+			SetItemButtonTextureVertexColor(button, 1.0, 1.0, 1.0)
+		end
+	else
+	-- No bag in this slot
+		SetItemButtonTexture(button, "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag")
+		SetItemButtonTextureVertexColor(button, 0.5, 0.5, 0.5)
+	end
+end
+
+-- OnEvent handler
+function Guda_BagSlot_OnEvent(button, event, arg1)
+	local bagID = button.bagID
+	if not bagID then
+		return
+	end
+
+	if event == "BAG_UPDATE" then
+		if arg1 == bagID then
+			Guda_BagSlot_Update(button, bagID)
+		end
+	elseif event == "UNIT_INVENTORY_CHANGED" then
+		if arg1 == "player" then
+			Guda_BagSlot_Update(button, bagID)
+		end
+	elseif event == "ITEM_LOCK_CHANGED" or event == "CURSOR_UPDATE" then
+		Guda_BagSlot_Update(button, bagID)
+	end
+end
+
+-- OnClick handler
+function Guda_BagSlot_OnClick(button, bagID)
+	local which = arg1 -- Vanilla uses global arg1 for mouse button name
+
+	-- Right-Click: toggle visibility
+	if which == "RightButton" then
+		hiddenBags[bagID] = not hiddenBags[bagID]
+
+		-- Update bag slot visual (dim/undim)
+		Guda_BagSlot_Update(button, bagID)
+
+		-- Refresh the bag display
+		BagFrame:Update()
+
+		return
+	end
+
+	-- Left-Click on bag0: toggle flyout if bagline is hidden
+	if which == "LeftButton" and bagID == 0 then
+		local hideBagline = addon.Modules.DB:GetSetting("hideBagline")
+		if hideBagline then
+			BagFrame:ToggleBagFlyout()
+			return
+		end
+	end
+
+	-- Left-Click: equip bag from cursor into this slot (bags 1-4 only)
+	if which == "LeftButton" then
+		if bagID ~= 0 and CursorHasItem and CursorHasItem() then
+			local invSlot = ContainerIDToInventoryID(bagID)
+			Guda_TryEquipBagOnSlot(bagID, invSlot, button)
+		end
+		return
+	end
+end
+
+-- OnEnter handler for tooltip
+function Guda_BagSlot_OnEnter(button, bagID)
+	GameTooltip:SetOwner(button, "ANCHOR_TOP")
+
+	if bagID == 0 then
+	-- Backpack tooltip
+		GameTooltip:SetText(Guda_L["Backpack"], 1.0, 1.0, 1.0)
+		local numSlots = GetContainerNumSlots(0)
+		GameTooltip:AddLine(string.format(Guda_L["%d Slots"], numSlots), 0.8, 0.8, 0.8)
+		if hiddenBags[bagID] then
+			GameTooltip:AddLine("(Hidden - Right-Click to show)", 0.8, 0.5, 0.5)
+		else
+			GameTooltip:AddLine(Guda_L["(Right-Click to hide)"], 0.5, 0.8, 0.5)
+		end
+		Guda_BagFrame_HighlightBagSlots(0)
+	elseif bagID == -2 then
+		-- Keyring tooltip
+		GameTooltip:SetText(Guda_L["Keyring"], 1.0, 1.0, 1.0)
+		local numSlots = GetContainerNumSlots(-2) or 0
+		GameTooltip:AddLine(string.format(Guda_L["%d Slots"], numSlots), 0.8, 0.8, 0.8)
+		if hiddenBags[bagID] then
+			GameTooltip:AddLine("(Hidden - Right-Click to show)", 0.8, 0.5, 0.5)
+		else
+			GameTooltip:AddLine(Guda_L["(Right-Click to hide)"], 0.5, 0.8, 0.5)
+		end
+		Guda_BagFrame_HighlightBagSlots(-2)
+	else
+	-- Bag slot tooltip
+		local invSlot = ContainerIDToInventoryID(bagID)
+		local hasItem = GetInventoryItemTexture("player", invSlot)
+
+		if hasItem then
+		-- Show bag item tooltip
+			GameTooltip:SetInventoryItem("player", invSlot)
+			if hiddenBags[bagID] then
+				GameTooltip:AddLine("(Hidden - Right-Click to show)", 0.8, 0.5, 0.5)
+			else
+				GameTooltip:AddLine(Guda_L["(Right-Click to hide)"], 0.5, 0.8, 0.5)
+			end
+			Guda_BagFrame_HighlightBagSlots(bagID)
+		else
+		-- Empty slot
+			GameTooltip:SetText(string.format(Guda_L["Bag %d"], bagID), 1.0, 1.0, 1.0)
+			GameTooltip:AddLine("Empty", 0.5, 0.5, 0.5)
+			if hiddenBags[bagID] then
+				GameTooltip:AddLine("(Hidden - Right-Click to show)", 0.8, 0.5, 0.5)
+			else
+				GameTooltip:AddLine(Guda_L["(Right-Click to hide)"], 0.5, 0.8, 0.5)
+			end
+			Guda_BagFrame_HighlightBagSlots(bagID)
+		end
+	end
+
+	GameTooltip:Show()
+end
+
+-- OnLeave handler for tooltip
+function Guda_BagSlot_OnLeave(button, bagID)
+end
+
+-- Highlight all item slots belonging to a specific bag by dimming others
+function Guda_BagFrame_HighlightBagSlots(bagID)
+    -- Use itemButtons hash instead of GetChildren() to avoid table allocation
+    local highlightCount, dimCount = 0, 0
+
+    for _, bagParent in pairs(bagParents) do
+        if bagParent and bagParent.itemButtons then
+            for button in pairs(bagParent.itemButtons) do
+                if button and button:IsShown() and button.hasItem ~= nil and not button.isBagSlot then
+                    if button.bagID == bagID then
+                        button:SetAlpha(1.0)
+                        highlightCount = highlightCount + 1
+                    else
+                        button:SetAlpha(0.25)
+                        dimCount = dimCount + 1
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Clear all highlighting by restoring full opacity to all slots
+function Guda_BagFrame_ClearHighlightedSlots()
+    -- Restore alpha to whatever the search filter dictates (pfUI style). If no search, full opacity.
+    -- Use itemButtons hash instead of GetChildren() to avoid table allocation
+    local searchActive = BagFrame and BagFrame.IsSearchActive and BagFrame:IsSearchActive()
+
+    for _, bagParent in pairs(bagParents) do
+        if bagParent and bagParent.itemButtons then
+            for button in pairs(bagParent.itemButtons) do
+                if button and button:IsShown() and button.hasItem ~= nil and not button.isBagSlot then
+                    if searchActive and BagFrame and BagFrame.PassesSearchFilter then
+                        local matches = BagFrame:PassesSearchFilter(button.itemData)
+                        button:SetAlpha(matches and 1.0 or 0.25)
+                    else
+                        button:SetAlpha(1.0)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Highlight a specific bag button in the toolbar
+function Guda_BagFrame_HighlightBagButton(bagID)
+	if not bagID then return end
+
+	local buttonName
+	if bagID == -2 then
+	-- Keyring button
+		buttonName = "Guda_BagFrame_Toolbar_KeyringButton"
+	elseif bagID >= 0 and bagID <= 4 then
+	-- Bag buttons 0-4 (0 is backpack)
+		buttonName = "Guda_BagFrame_Toolbar_BagSlot" .. bagID
+	else
+		return
+	end
+
+	local button = getglobal(buttonName)
+	if button then
+	-- Set the button's pushed texture to highlight it
+		button:LockHighlight()
+	end
+end
+
+-- Clear bag button highlighting
+function Guda_BagFrame_ClearBagButtonHighlight()
+-- Clear highlight from all bag buttons (0-4)
+	for bagID = 0, 4 do
+		local buttonName = "Guda_BagFrame_Toolbar_BagSlot" .. bagID
+		local button = getglobal(buttonName)
+		if button then
+			button:UnlockHighlight()
+		end
+	end
+
+	-- Clear keyring button highlight
+	local keyringButton = getglobal("Guda_BagFrame_Toolbar_KeyringButton")
+	if keyringButton then
+		keyringButton:UnlockHighlight()
+	end
+
+	-- Clear soul bag button highlight
+	local soulBagButton = getglobal("Guda_BagFrame_Toolbar_SoulBagButton")
+	if soulBagButton then
+		soulBagButton:UnlockHighlight()
+	end
+end
+
+-- Initialize
+function BagFrame:Initialize()
+	-- BagFrame:Initialize is invoked from Main.lua on PLAYER_LOGIN, so we
+	-- install the default-bag hooks directly instead of registering another
+	-- PLAYER_LOGIN event (which would never fire).
+	HookDefaultBags()
+
+	-- Re-hook when character frame is opened (for safety)
+	local charFrame = getglobal("CharacterFrame")
+	if charFrame then
+		local originalShow = charFrame:GetScript("OnShow")
+		charFrame:SetScript("OnShow", function()
+			HookBagContainers()
+			if originalShow then
+				originalShow()
+			end
+		end)
+	end
+
+ --=====================================================
+ -- Efficient Update Throttling System
+ -- Uses a single reusable frame and true debouncing
+ -- (resets timer when new events come in)
+ --=====================================================
+ local updateThrottle = {
+     frame = nil,
+     pending = false,
+     delay = 0.1,        -- Default delay (100ms)
+     elapsed = 0,
+     minDelay = 0.05,    -- Minimum delay (50ms) for responsive feel
+     maxDelay = 0.3,     -- Maximum delay (300ms) during heavy operations
+ }
+
+ -- Initialize the throttle frame (created once, reused)
+ local function GetThrottleFrame()
+     if not updateThrottle.frame then
+         updateThrottle.frame = CreateFrame("Frame", "Guda_BagUpdateThrottle", UIParent)
+         updateThrottle.frame:Hide()
+         updateThrottle.frame:SetScript("OnUpdate", function()
+             updateThrottle.elapsed = updateThrottle.elapsed + arg1
+             if updateThrottle.elapsed >= updateThrottle.delay then
+                 updateThrottle.frame:Hide()
+                 updateThrottle.pending = false
+                 updateThrottle.elapsed = 0
+                 -- Only update if frame is shown and viewing current character
+                 if not currentViewChar and Guda_BagFrame and Guda_BagFrame:IsShown() then
+                     BagFrame:Update()
+                 end
+             end
+         end)
+     end
+     return updateThrottle.frame
+ end
+
+ -- Schedule a debounced BagFrame update
+ -- If already pending, resets the timer (true debounce behavior)
+ local function ScheduleBagFrameUpdate(delay)
+     delay = delay or updateThrottle.minDelay
+
+     -- Clamp delay to reasonable bounds
+     if delay < updateThrottle.minDelay then
+         delay = updateThrottle.minDelay
+     elseif delay > updateThrottle.maxDelay then
+         delay = updateThrottle.maxDelay
+     end
+
+     -- Use longer delay if sorting is in progress
+     if addon.Modules.SortEngine and addon.Modules.SortEngine.sortingInProgress then
+         delay = updateThrottle.maxDelay
+     end
+
+     updateThrottle.delay = delay
+     updateThrottle.elapsed = 0  -- Reset timer (true debounce)
+
+     if not updateThrottle.pending then
+         updateThrottle.pending = true
+         GetThrottleFrame():Show()
+     end
+ end
+
+ -- Cancel any pending update (useful when frame is hidden)
+ local function CancelPendingUpdate()
+     if updateThrottle.frame then
+         updateThrottle.frame:Hide()
+     end
+     updateThrottle.pending = false
+     updateThrottle.elapsed = 0
+ end
+
+ -- Update on bag changes (debounced to prevent lag on rapid bag updates)
+ -- Register directly to access arg1 (bagID that changed) for incremental cache updates
+ local bagUpdateFrame = CreateFrame("Frame")
+ bagUpdateFrame:RegisterEvent("BAG_UPDATE")
+ bagUpdateFrame:SetScript("OnEvent", function()
+     if currentViewChar then return end
+     if not Guda_BagFrame:IsShown() then return end
+
+     -- Only handle player bags (0-4) - use tonumber for safe comparison
+     local bagID = tonumber(arg1)
+     if not bagID or bagID < 0 or bagID > 4 then
+         return  -- Skip bank bags (5-10) and invalid bags
+     end
+
+     local viewType = addon.Modules.DB:GetSetting("bagViewType") or "single"
+     addon:DebugCategory("BAG_UPDATE (BagFrame): bagID=%d, viewType=%s", bagID, viewType)
+
+     -- Check if sorting is in progress - use full redraw with throttle
+     local isSorting = addon.Modules.SortEngine and addon.Modules.SortEngine.sortingInProgress
+
+     if not isSorting then
+         -- Try incremental update for manual item moves
+         -- NOTE: Don't clear ItemDetection cache - item properties don't change on move
+         addon.Modules.BagScanner:InvalidateBag(arg1)
+
+         -- Try to update only changed slots in this bag
+         local result = BagFrame:UpdateChangedSlots(arg1)
+         addon:DebugCategory("BAG_UPDATE: UpdateChangedSlots result=%s", tostring(result))
+         if result >= 0 then
+             -- Success - updated slots without full redraw
+             -- Cancel any pending full redraw to preserve incremental update
+             CancelPendingUpdate()
+             addon:DebugCategory("BAG_UPDATE: Incremental update succeeded, skipping full redraw")
+             -- Safety net: the slot may still be server-locked at the moment
+             -- BAG_UPDATE fires. Re-read lock states shortly after so the
+             -- desaturated "locked" look clears once the server unlocks.
+             Guda_ScheduleTimer(0.25, function()
+                 if Guda_BagFrame:IsShown() and not currentViewChar
+                    and BagFrame.UpdateLockStates then
+                     BagFrame:UpdateLockStates()
+                 end
+             end)
+             return
+         end
+         -- Fall through to full redraw if incremental update failed
+         addon:DebugCategory("BAG_UPDATE: Incremental update failed, doing full redraw")
+     end
+
+     -- In category view, detect slots that just became empty to show placeholders
+     if viewType == "category" and not isSorting then
+         local numSlots = GetContainerNumSlots(bagID)
+         if numSlots and numSlots > 0 then
+             for slotID = 1, numSlots do
+                 local currentLink = GetContainerItemLink(bagID, slotID)
+                 local button = slotToButton[bagID] and slotToButton[bagID][slotID]
+                 if button and button.hasItem and not currentLink and not button.isEmptyPlaceholder then
+                     -- This slot had an item but is now empty — mark as recently emptied
+                     local oldCategory = nil
+                     if button.itemData and addon.Modules.CategoryManager then
+                         oldCategory = addon.Modules.CategoryManager:CategorizeItem(button.itemData, bagID, slotID)
+                     end
+                     BagFrame:MarkSlotAsEmptied(bagID, slotID, oldCategory, button.itemData)
+                 end
+             end
+         end
+     end
+
+     -- Sorting in progress or incremental update failed - use throttled full redraw
+     addon.Modules.BagScanner:InvalidateBag(arg1)
+     ScheduleBagFrameUpdate(0.1)
+ end)
+
+ -- Update item cooldown overlays when item cooldowns change
+ addon.Modules.Events:Register("BAG_UPDATE_COOLDOWN", function()
+     if not currentViewChar then
+         if BagFrame.RefreshCooldowns then
+             BagFrame:RefreshCooldowns()
+         end
+     end
+ end, "BagFrame")
+
+	-- Update on money changes
+	addon.Modules.Events:OnMoneyChanged(function()
+		BagFrame:UpdateMoney()
+	end, "BagFrame")
+
+	-- Update when items get locked/unlocked (debounced for trading, mailing, etc.)
+	-- Use UpdateLockStates directly in both views: the throttled full redraw
+	-- path is fragile here because a follow-up BAG_UPDATE can CancelPendingUpdate()
+	-- before the redraw runs, leaving buttons stuck in the desaturated
+	-- "locked" state after a successful item swap.
+	local lockUpdatePending = false
+	addon.Modules.Events:Register("ITEM_LOCK_CHANGED", function()
+		if currentViewChar then return end
+		if not Guda_BagFrame:IsShown() then return end
+		if not lockUpdatePending then
+			lockUpdatePending = true
+			Guda_ScheduleTimer(0.05, function()
+				lockUpdatePending = false
+				if Guda_BagFrame:IsShown() and not currentViewChar then
+					BagFrame:UpdateLockStates()
+				end
+			end)
+		end
+	end, "BagFrame")
+
+	-- Auto-open bag frame when interacting with mail, bank, auction, trade
+	local function AutoOpenBags()
+		local autoOpen = addon.Modules.DB:GetSetting("autoOpenBags")
+		if autoOpen == nil then autoOpen = true end
+		if autoOpen then
+			Guda_BagFrame:Show()
+		end
+	end
+
+	addon.Modules.Events:Register("MAIL_SHOW", AutoOpenBags, "BagFrame")
+	addon.Modules.Events:Register("BANKFRAME_OPENED", AutoOpenBags, "BagFrame")
+	addon.Modules.Events:Register("AUCTION_HOUSE_SHOW", AutoOpenBags, "BagFrame")
+	addon.Modules.Events:Register("TRADE_SHOW", AutoOpenBags, "BagFrame")
+
+	-- Track vendor interactions to avoid closing bags when a vendor is opened
+	addon.Modules.Events:Register("MERCHANT_SHOW", function()
+		isMerchantOpen = true
+		-- Auto-open bags when visiting a vendor (respects setting)
+		local autoOpen = addon.Modules.DB:GetSetting("autoOpenBags")
+		if autoOpen == nil then autoOpen = true end
+		if autoOpen then
+			local frameRef = getglobal("Guda_BagFrame")
+			if frameRef and not frameRef:IsShown() then
+				frameRef:Show()
+			end
+		end
+
+		-- Auto-sell junk items (spread across frames to avoid item locking)
+		local autoVendor = addon.Modules.DB:GetSetting("autoVendorJunk")
+		if autoVendor == nil then autoVendor = true end
+		if autoVendor then
+			local junkItems = {}
+			local DB = addon.Modules.DB
+			local Utils = addon.Modules.Utils
+			for bag = 0, 4 do
+				local numSlots = GetContainerNumSlots(bag)
+				for slot = 1, numSlots do
+					local link = GetContainerItemLink(bag, slot)
+					if link and string.find(link, "|cff9d9d9d") then
+						local skip = false
+						if DB and Utils then
+							local itemID = Utils:ExtractItemID(link)
+							if itemID and DB:IsItemProtected(itemID) then
+								skip = true
+							end
+						end
+						if not skip then
+							table.insert(junkItems, { bag = bag, slot = slot })
+						end
+					end
+				end
+			end
+			if table.getn(junkItems) > 0 then
+				local idx = 0
+				local soldCount = 0
+				local sellFrame = CreateFrame("Frame")
+				sellFrame:SetScript("OnUpdate", function()
+					if not isMerchantOpen then
+						this:SetScript("OnUpdate", nil)
+						if soldCount > 0 then
+							addon:Print(format(Guda_L["Sold %d junk item(s)"], soldCount))
+						end
+						return
+					end
+					idx = idx + 1
+					local item = junkItems[idx]
+					if item then
+						local link = GetContainerItemLink(item.bag, item.slot)
+						if link and string.find(link, "|cff9d9d9d") then
+							UseContainerItem(item.bag, item.slot)
+							soldCount = soldCount + 1
+						end
+					else
+						this:SetScript("OnUpdate", nil)
+						if soldCount > 0 then
+							addon:Print(format(Guda_L["Sold %d junk item(s)"], soldCount))
+						end
+					end
+				end)
+			end
+		end
+	end, "BagFrame")
+
+	addon.Modules.Events:Register("MERCHANT_CLOSED", function()
+		isMerchantOpen = false
+		local autoClose = addon.Modules.DB:GetSetting("autoCloseBags")
+		if autoClose == nil then autoClose = true end
+		if autoClose then
+			Guda_BagFrame:Hide()
+		end
+	end, "BagFrame")
+
+	-- Auto-close bag frame when closing mail, bank, auction, trade
+	local function AutoCloseBags()
+		local autoClose = addon.Modules.DB:GetSetting("autoCloseBags")
+		if autoClose == nil then autoClose = true end
+		if autoClose then
+			Guda_BagFrame:Hide()
+		end
+	end
+
+	addon.Modules.Events:Register("MAIL_CLOSED", AutoCloseBags, "BagFrame")
+	addon.Modules.Events:Register("BANKFRAME_CLOSED", AutoCloseBags, "BagFrame")
+	addon.Modules.Events:Register("AUCTION_HOUSE_CLOSED", AutoCloseBags, "BagFrame")
+	addon.Modules.Events:Register("TRADE_CLOSED", AutoCloseBags, "BagFrame")
+
+	-- Hide character dropdown when clicking on bag frame
+	local bagFrame = getglobal("Guda_BagFrame")
+	if bagFrame then
+		local originalOnMouseDown = bagFrame:GetScript("OnMouseDown")
+		bagFrame:SetScript("OnMouseDown", function()
+			if originalOnMouseDown then
+				originalOnMouseDown()
+			end
+		end)
+	end
+
+    addon:Debug("Bag frame initialized")
+end
+
+-- Refresh cooldown overlays for all visible item buttons
+function BagFrame:RefreshCooldowns()
+    -- Use itemButtons hash instead of GetChildren() to avoid table allocation
+    for _, bagParent in pairs(bagParents) do
+        if bagParent and bagParent.itemButtons then
+            for button in pairs(bagParent.itemButtons) do
+                if button and button.hasItem and button:IsShown() and Guda_ItemButton_UpdateCooldown then
+                    Guda_ItemButton_UpdateCooldown(button)
+                end
+            end
+        end
+    end
+end

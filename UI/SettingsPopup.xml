@@ -1,0 +1,1102 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/">
+
+    <!-- Settings Popup Frame -->
+    <Frame name="Guda_SettingsPopup" toplevel="true" movable="true" enableMouse="true" hidden="true" parent="UIParent" frameStrata="DIALOG">
+        <Size>
+            <AbsDimension x="500" y="525"/>
+        </Size>
+
+        <Anchors>
+            <Anchor point="CENTER" relativePoint="CENTER" relativeTo="UIParent">
+                <Offset>
+                    <AbsDimension x="0" y="0"/>
+                </Offset>
+            </Anchor>
+        </Anchors>
+
+        <Layers>
+            <!-- Title -->
+            <Layer level="ARTWORK">
+                <FontString name="$parent_Title" inherits="GameFontNormalLarge">
+                    <Anchors>
+                        <Anchor point="TOP">
+                            <Offset>
+                                <AbsDimension x="0" y="-20"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                    <Color r="1" g="0.82" b="0"/>
+                </FontString>
+            </Layer>
+        </Layers>
+
+        <Frames>
+            <!-- Close Button -->
+            <Button name="$parent_CloseButton" inherits="UIPanelCloseButton">
+                <Anchors>
+                    <Anchor point="TOPRIGHT">
+                        <Offset>
+                            <AbsDimension x="-5" y="-5"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda_SettingsPopup:Hide()
+                    </OnClick>
+                </Scripts>
+            </Button>
+
+            <!-- Tab Buttons (6 tabs at 76px) -->
+            <!-- Order: General | Layout | Icons | Bar | Categories | Guide -->
+
+            <Button name="Guda_SettingsPopup_GeneralTabButton" enableMouse="true">
+                <Size><AbsDimension x="76" y="28"/></Size>
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT">
+                        <Offset><AbsDimension x="20" y="-55"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="BACKGROUND">
+                        <Texture name="$parent_Bg" setAllPoints="true">
+                            <Color r="1" g="1" b="1" a="0.3"/>
+                        </Texture>
+                    </Layer>
+                    <Layer level="OVERLAY">
+                        <FontString name="$parent_Text" inherits="GameFontNormal" text="General">
+                            <Anchors><Anchor point="CENTER"/></Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+                <Scripts>
+                    <OnClick>Guda_SettingsPopup_SelectTab("general")</OnClick>
+                </Scripts>
+            </Button>
+
+            <Button name="Guda_SettingsPopup_LayoutTabButton" enableMouse="true">
+                <Size><AbsDimension x="76" y="28"/></Size>
+                <Anchors>
+                    <Anchor point="LEFT" relativeTo="Guda_SettingsPopup_GeneralTabButton" relativePoint="RIGHT">
+                        <Offset><AbsDimension x="2" y="0"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="BACKGROUND">
+                        <Texture name="$parent_Bg" setAllPoints="true">
+                            <Color r="1" g="1" b="1" a="0.1"/>
+                        </Texture>
+                    </Layer>
+                    <Layer level="OVERLAY">
+                        <FontString name="$parent_Text" inherits="GameFontNormal" text="Layout">
+                            <Anchors><Anchor point="CENTER"/></Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+                <Scripts>
+                    <OnClick>Guda_SettingsPopup_SelectTab("layout")</OnClick>
+                </Scripts>
+            </Button>
+
+            <Button name="Guda_SettingsPopup_IconsTabButton" enableMouse="true">
+                <Size><AbsDimension x="76" y="28"/></Size>
+                <Anchors>
+                    <Anchor point="LEFT" relativeTo="Guda_SettingsPopup_LayoutTabButton" relativePoint="RIGHT">
+                        <Offset><AbsDimension x="2" y="0"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="BACKGROUND">
+                        <Texture name="$parent_Bg" setAllPoints="true">
+                            <Color r="1" g="1" b="1" a="0.1"/>
+                        </Texture>
+                    </Layer>
+                    <Layer level="OVERLAY">
+                        <FontString name="$parent_Text" inherits="GameFontNormal" text="Icons">
+                            <Anchors><Anchor point="CENTER"/></Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+                <Scripts>
+                    <OnClick>Guda_SettingsPopup_SelectTab("icons")</OnClick>
+                </Scripts>
+            </Button>
+
+            <Button name="Guda_SettingsPopup_BarTabButton" enableMouse="true">
+                <Size><AbsDimension x="76" y="28"/></Size>
+                <Anchors>
+                    <Anchor point="LEFT" relativeTo="Guda_SettingsPopup_IconsTabButton" relativePoint="RIGHT">
+                        <Offset><AbsDimension x="2" y="0"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="BACKGROUND">
+                        <Texture name="$parent_Bg" setAllPoints="true">
+                            <Color r="1" g="1" b="1" a="0.1"/>
+                        </Texture>
+                    </Layer>
+                    <Layer level="OVERLAY">
+                        <FontString name="$parent_Text" inherits="GameFontNormal" text="Bar">
+                            <Anchors><Anchor point="CENTER"/></Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+                <Scripts>
+                    <OnClick>Guda_SettingsPopup_SelectTab("bar")</OnClick>
+                </Scripts>
+            </Button>
+
+            <Button name="Guda_SettingsPopup_CategoriesTabButton" enableMouse="true">
+                <Size><AbsDimension x="76" y="28"/></Size>
+                <Anchors>
+                    <Anchor point="LEFT" relativeTo="Guda_SettingsPopup_BarTabButton" relativePoint="RIGHT">
+                        <Offset><AbsDimension x="2" y="0"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="BACKGROUND">
+                        <Texture name="$parent_Bg" setAllPoints="true">
+                            <Color r="1" g="1" b="1" a="0.1"/>
+                        </Texture>
+                    </Layer>
+                    <Layer level="OVERLAY">
+                        <FontString name="$parent_Text" inherits="GameFontNormal" text="Categories">
+                            <Anchors><Anchor point="CENTER"/></Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+                <Scripts>
+                    <OnClick>Guda_SettingsPopup_SelectTab("categories")</OnClick>
+                </Scripts>
+            </Button>
+
+            <Button name="Guda_SettingsPopup_GuideTabButton" enableMouse="true">
+                <Size><AbsDimension x="76" y="28"/></Size>
+                <Anchors>
+                    <Anchor point="LEFT" relativeTo="Guda_SettingsPopup_CategoriesTabButton" relativePoint="RIGHT">
+                        <Offset><AbsDimension x="2" y="0"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="BACKGROUND">
+                        <Texture name="$parent_Bg" setAllPoints="true">
+                            <Color r="1" g="1" b="1" a="0.1"/>
+                        </Texture>
+                    </Layer>
+                    <Layer level="OVERLAY">
+                        <FontString name="$parent_Text" inherits="GameFontNormal" text="Guide">
+                            <Anchors><Anchor point="CENTER"/></Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+                <Scripts>
+                    <OnClick>Guda_SettingsPopup_SelectTab("guide")</OnClick>
+                </Scripts>
+            </Button>
+
+            <!-- ============================================ -->
+            <!-- General Tab Content                          -->
+            <!-- Sections: Appearance, Options                -->
+            <!-- ============================================ -->
+            <Frame name="Guda_SettingsPopup_GeneralTab">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT">
+                        <Offset><AbsDimension x="15" y="-90"/></Offset>
+                    </Anchor>
+                    <Anchor point="BOTTOMRIGHT" relativeTo="$parent" relativePoint="BOTTOMRIGHT">
+                        <Offset><AbsDimension x="-15" y="15"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Frames>
+                    <!-- Appearance section -->
+                    <!-- Theme Dropdown -->
+                    <Frame name="Guda_SettingsPopup_ThemeDropdown" inherits="UIDropDownMenuTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT">
+                                <Offset><AbsDimension x="-10" y="-45"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>
+                                Guda_SettingsPopup_ThemeDropdown_OnLoad(this)
+                            </OnLoad>
+                        </Scripts>
+                    </Frame>
+
+                    <!-- pfUI Transparency Checkbox (visible only when pfUI theme selected) -->
+                    <CheckButton name="Guda_SettingsPopup_UsePfUITransparencyCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_ThemeDropdown">
+                                <Offset><AbsDimension x="130" y="2"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_UsePfUITransparencyCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_UsePfUITransparencyCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Background Transparency Slider -->
+                    <Slider name="Guda_SettingsPopup_BgTransparencySlider" inherits="OptionsSliderTemplate">
+                        <Size><AbsDimension x="450" y="17"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_ThemeDropdown">
+                                <Offset><AbsDimension x="15" y="-25"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_BgTransparencySlider_OnLoad(this)</OnLoad>
+                            <OnValueChanged>Guda_SettingsPopup_BgTransparencySlider_OnValueChanged(this)</OnValueChanged>
+                        </Scripts>
+                    </Slider>
+
+                    <!-- Options section -->
+                    <!-- Lock Bags Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_LockBagsCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_BgTransparencySlider">
+                                <Offset><AbsDimension x="0" y="-45"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_LockBagsCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_LockBagsCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Hide Borders Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_HideBordersCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_LockBagsCheckbox">
+                                <Offset><AbsDimension x="200" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_HideBordersCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_HideBordersCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Show Tooltip Counts Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_ShowTooltipCountsCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_LockBagsCheckbox">
+                                <Offset><AbsDimension x="0" y="-8"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_ShowTooltipCountsCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_ShowTooltipCountsCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Reverse Stack Sort Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_ReverseStackSortCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_ShowTooltipCountsCheckbox">
+                                <Offset><AbsDimension x="200" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_ReverseStackSortCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_ReverseStackSortCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Automation section -->
+                    <!-- Auto Close Bags Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_AutoCloseBagsCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_ShowTooltipCountsCheckbox">
+                                <Offset><AbsDimension x="0" y="-35"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_AutoCloseBagsCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_AutoCloseBagsCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Auto Open Bags Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_AutoOpenBagsCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_AutoCloseBagsCheckbox">
+                                <Offset><AbsDimension x="200" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_AutoOpenBagsCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_AutoOpenBagsCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Auto Sell Junk Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_AutoVendorJunkCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_AutoCloseBagsCheckbox">
+                                <Offset><AbsDimension x="0" y="-8"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_AutoVendorJunkCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_AutoVendorJunkCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Auto Loot Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_AutoLootCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_AutoVendorJunkCheckbox">
+                                <Offset><AbsDimension x="0" y="-8"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_AutoLootCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_AutoLootCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Auto Open Clams Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_AutoOpenClamsCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_AutoVendorJunkCheckbox">
+                                <Offset><AbsDimension x="200" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_AutoOpenClamsCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_AutoOpenClamsCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+                </Frames>
+            </Frame>
+
+            <!-- ============================================ -->
+            <!-- Layout Tab Content                           -->
+            <!-- Sections: View, Columns, Options             -->
+            <!-- ============================================ -->
+            <Frame name="Guda_SettingsPopup_LayoutTab" hidden="true">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT">
+                        <Offset><AbsDimension x="15" y="-90"/></Offset>
+                    </Anchor>
+                    <Anchor point="BOTTOMRIGHT" relativeTo="$parent" relativePoint="BOTTOMRIGHT">
+                        <Offset><AbsDimension x="-15" y="15"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Frames>
+                    <!-- View section -->
+                    <!-- Bag View Type Dropdown -->
+                    <Frame name="Guda_SettingsPopup_BagViewDropdown" inherits="UIDropDownMenuTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT">
+                                <Offset><AbsDimension x="-10" y="-45"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_BagViewDropdown_OnLoad(this)</OnLoad>
+                        </Scripts>
+                    </Frame>
+
+                    <!-- Bank View Type Dropdown -->
+                    <Frame name="Guda_SettingsPopup_BankViewDropdown" inherits="UIDropDownMenuTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativeTo="Guda_SettingsPopup_BagViewDropdown" relativePoint="RIGHT">
+                                <Offset><AbsDimension x="30" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_BankViewDropdown_OnLoad(this)</OnLoad>
+                        </Scripts>
+                    </Frame>
+
+                    <!-- Columns section -->
+                    <!-- Bag Columns Slider -->
+                    <Slider name="Guda_SettingsPopup_BagColumnsSlider" inherits="OptionsSliderTemplate">
+                        <Size><AbsDimension x="450" y="17"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_BagViewDropdown">
+                                <Offset><AbsDimension x="15" y="-65"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_BagColumnsSlider_OnLoad(this)</OnLoad>
+                            <OnValueChanged>Guda_SettingsPopup_BagColumnsSlider_OnValueChanged(this)</OnValueChanged>
+                        </Scripts>
+                    </Slider>
+
+                    <!-- Bank Columns Slider -->
+                    <Slider name="Guda_SettingsPopup_BankColumnsSlider" inherits="OptionsSliderTemplate">
+                        <Size><AbsDimension x="450" y="17"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_BagColumnsSlider">
+                                <Offset><AbsDimension x="0" y="-40"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_BankColumnsSlider_OnLoad(this)</OnLoad>
+                            <OnValueChanged>Guda_SettingsPopup_BankColumnsSlider_OnValueChanged(this)</OnValueChanged>
+                        </Scripts>
+                    </Slider>
+
+                    <!-- Options section -->
+                    <!-- Show Search Bar Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_ShowSearchBarCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_BankColumnsSlider">
+                                <Offset><AbsDimension x="0" y="-55"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_ShowSearchBarCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_ShowSearchBarCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Hide Footer Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_HideFooterCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_ShowSearchBarCheckbox">
+                                <Offset><AbsDimension x="200" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_HideFooterCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_HideFooterCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Search Bar Toggle-Mode Checkbox (indented sub-option of Show Search Bar) -->
+                    <CheckButton name="Guda_SettingsPopup_SearchBarToggleCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_ShowSearchBarCheckbox">
+                                <Offset><AbsDimension x="20" y="-4"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_SearchBarToggleCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_SearchBarToggleCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Hide Bagline Checkbox (anchored beneath the toggle sub-option) -->
+                    <CheckButton name="Guda_SettingsPopup_HoverBaglineCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_SearchBarToggleCheckbox">
+                                <Offset><AbsDimension x="-20" y="-8"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_HoverBaglineCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_HoverBaglineCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Show Equipment Set Categories Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_ShowEquipSetCategoriesCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_HoverBaglineCheckbox">
+                                <Offset><AbsDimension x="200" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_ShowEquipSetCategoriesCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_ShowEquipSetCategoriesCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Show Category Count Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_ShowCategoryCountCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_HoverBaglineCheckbox">
+                                <Offset><AbsDimension x="0" y="-8"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_ShowCategoryCountCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_ShowCategoryCountCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+                </Frames>
+            </Frame>
+
+            <!-- ============================================ -->
+            <!-- Icons Tab Content                            -->
+            <!-- Sections: Icon, Icon Options                 -->
+            <!-- ============================================ -->
+            <Frame name="Guda_SettingsPopup_IconsTab" hidden="true">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT">
+                        <Offset><AbsDimension x="15" y="-90"/></Offset>
+                    </Anchor>
+                    <Anchor point="BOTTOMRIGHT" relativeTo="$parent" relativePoint="BOTTOMRIGHT">
+                        <Offset><AbsDimension x="-15" y="15"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Frames>
+                    <!-- Icon section -->
+                    <!-- Icon Size Slider -->
+                    <Slider name="Guda_SettingsPopup_IconSizeSlider" inherits="OptionsSliderTemplate">
+                        <Size><AbsDimension x="450" y="17"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT">
+                                <Offset><AbsDimension x="5" y="-35"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_IconSizeSlider_OnLoad(this)</OnLoad>
+                            <OnValueChanged>Guda_SettingsPopup_IconSizeSlider_OnValueChanged(this)</OnValueChanged>
+                        </Scripts>
+                    </Slider>
+
+                    <!-- Icon Font Size Slider -->
+                    <Slider name="Guda_SettingsPopup_IconFontSizeSlider" inherits="OptionsSliderTemplate">
+                        <Size><AbsDimension x="450" y="17"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_IconSizeSlider">
+                                <Offset><AbsDimension x="0" y="-40"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_IconFontSizeSlider_OnLoad(this)</OnLoad>
+                            <OnValueChanged>Guda_SettingsPopup_IconFontSizeSlider_OnValueChanged(this)</OnValueChanged>
+                        </Scripts>
+                    </Slider>
+
+                    <!-- Icon Spacing Slider -->
+                    <Slider name="Guda_SettingsPopup_IconSpacingSlider" inherits="OptionsSliderTemplate">
+                        <Size><AbsDimension x="450" y="17"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_IconFontSizeSlider">
+                                <Offset><AbsDimension x="0" y="-40"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_IconSpacingSlider_OnLoad(this)</OnLoad>
+                            <OnValueChanged>Guda_SettingsPopup_IconSpacingSlider_OnValueChanged(this)</OnValueChanged>
+                        </Scripts>
+                    </Slider>
+
+                    <!-- Icon Options section -->
+                    <!-- Equipment Borders Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_QualityBorderEquipmentCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_IconSpacingSlider">
+                                <Offset><AbsDimension x="0" y="-45"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_QualityBorderEquipmentCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_QualityBorderEquipmentCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Other Item Borders Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_QualityBorderOtherCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_QualityBorderEquipmentCheckbox">
+                                <Offset><AbsDimension x="200" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_QualityBorderOtherCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_QualityBorderOtherCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Mark Unusable Items Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_MarkUnusableCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_QualityBorderEquipmentCheckbox">
+                                <Offset><AbsDimension x="0" y="-8"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_MarkUnusableCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_MarkUnusableCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- White Items as Junk Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_WhiteItemsJunkCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_MarkUnusableCheckbox">
+                                <Offset><AbsDimension x="200" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_WhiteItemsJunkCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_WhiteItemsJunkCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Mark Equipment Sets Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_MarkEquipmentSetsCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_MarkUnusableCheckbox">
+                                <Offset><AbsDimension x="0" y="-8"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_MarkEquipmentSetsCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_MarkEquipmentSetsCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Auto Lock Set Items Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_AutoLockSetItemsCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_MarkEquipmentSetsCheckbox">
+                                <Offset><AbsDimension x="200" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_AutoLockSetItemsCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_AutoLockSetItemsCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Junk Item Opacity Slider -->
+                    <Slider name="Guda_SettingsPopup_JunkOpacitySlider" inherits="OptionsSliderTemplate">
+                        <Size><AbsDimension x="450" y="17"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_MarkEquipmentSetsCheckbox">
+                                <Offset><AbsDimension x="0" y="-25"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_JunkOpacitySlider_OnLoad(this)</OnLoad>
+                            <OnValueChanged>Guda_SettingsPopup_JunkOpacitySlider_OnValueChanged(this)</OnValueChanged>
+                        </Scripts>
+                    </Slider>
+                </Frames>
+            </Frame>
+
+            <!-- ============================================ -->
+            <!-- Bar Tab Content                              -->
+            <!-- Sections: Quest Bar, Tracked                 -->
+            <!-- ============================================ -->
+            <Frame name="Guda_SettingsPopup_BarTab" hidden="true">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT">
+                        <Offset><AbsDimension x="15" y="-90"/></Offset>
+                    </Anchor>
+                    <Anchor point="BOTTOMRIGHT" relativeTo="$parent" relativePoint="BOTTOMRIGHT">
+                        <Offset><AbsDimension x="-15" y="15"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Frames>
+                    <!-- Quest Bar section -->
+                    <!-- Show Quest Bar Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_ShowQuestBarCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT">
+                                <Offset><AbsDimension x="5" y="-30"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_ShowQuestBarCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_ShowQuestBarCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
+                    <!-- Quest Bar Size Slider -->
+                    <Slider name="Guda_SettingsPopup_QuestBarSizeSlider" inherits="OptionsSliderTemplate">
+                        <Size><AbsDimension x="450" y="17"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_ShowQuestBarCheckbox">
+                                <Offset><AbsDimension x="0" y="-20"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_QuestBarSizeSlider_OnLoad(this)</OnLoad>
+                            <OnValueChanged>Guda_SettingsPopup_QuestBarSizeSlider_OnValueChanged(this)</OnValueChanged>
+                        </Scripts>
+                    </Slider>
+
+                    <!-- Tracked section -->
+                    <!-- Tracked Bar Size Slider -->
+                    <Slider name="Guda_SettingsPopup_TrackedBarSizeSlider" inherits="OptionsSliderTemplate">
+                        <Size><AbsDimension x="450" y="17"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_QuestBarSizeSlider">
+                                <Offset><AbsDimension x="0" y="-55"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_TrackedBarSizeSlider_OnLoad(this)</OnLoad>
+                            <OnValueChanged>Guda_SettingsPopup_TrackedBarSizeSlider_OnValueChanged(this)</OnValueChanged>
+                        </Scripts>
+                    </Slider>
+                </Frames>
+            </Frame>
+
+            <!-- ============================================ -->
+            <!-- Categories Tab Content (unchanged)           -->
+            <!-- ============================================ -->
+            <Frame name="Guda_SettingsPopup_CategoriesTab" hidden="true">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT">
+                        <Offset><AbsDimension x="15" y="-90"/></Offset>
+                    </Anchor>
+                    <Anchor point="BOTTOMRIGHT" relativeTo="$parent" relativePoint="BOTTOMRIGHT">
+                        <Offset><AbsDimension x="-15" y="15"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="ARTWORK">
+                        <FontString name="$parent_Header" inherits="GameFontNormal" text="Manage item categories and their display order:">
+                            <Anchors>
+                                <Anchor point="TOPLEFT">
+                                    <Offset><AbsDimension x="5" y="-5"/></Offset>
+                                </Anchor>
+                            </Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+                <Frames>
+                    <!-- Scroll Frame for Category List -->
+                    <ScrollFrame name="Guda_SettingsPopup_CategoriesScrollFrame" inherits="FauxScrollFrameTemplate">
+                        <Size><AbsDimension x="440" y="320"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT">
+                                <Offset><AbsDimension x="5" y="-25"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnVerticalScroll>
+                                FauxScrollFrame_OnVerticalScroll(this, arg1, 18, Guda_SettingsPopup_CategoriesTab_Update)
+                            </OnVerticalScroll>
+                            <OnShow>
+                                Guda_SettingsPopup_CategoriesTab_Update()
+                            </OnShow>
+                        </Scripts>
+                    </ScrollFrame>
+
+                    <!-- Category Row Container -->
+                    <Frame name="Guda_SettingsPopup_CategoryListContainer">
+                        <Size><AbsDimension x="420" y="320"/></Size>
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativeTo="Guda_SettingsPopup_CategoriesScrollFrame" relativePoint="TOPLEFT"/>
+                        </Anchors>
+                    </Frame>
+
+                    <!-- Add Category Button -->
+                    <Button name="Guda_SettingsPopup_AddCategoryButton" inherits="UIPanelButtonTemplate">
+                        <Size><AbsDimension x="120" y="25"/></Size>
+                        <Anchors>
+                            <Anchor point="BOTTOMLEFT" relativeTo="$parent" relativePoint="BOTTOMLEFT">
+                                <Offset><AbsDimension x="5" y="10"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnClick>Guda_SettingsPopup_AddCategory_OnClick()</OnClick>
+                        </Scripts>
+                    </Button>
+
+                    <!-- Reset to Defaults Button -->
+                    <Button name="Guda_SettingsPopup_ResetCategoriesButton" inherits="UIPanelButtonTemplate">
+                        <Size><AbsDimension x="120" y="25"/></Size>
+                        <Anchors>
+                            <Anchor point="LEFT" relativeTo="Guda_SettingsPopup_AddCategoryButton" relativePoint="RIGHT">
+                                <Offset><AbsDimension x="10" y="0"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnClick>Guda_SettingsPopup_ResetCategories_OnClick()</OnClick>
+                        </Scripts>
+                    </Button>
+                </Frames>
+            </Frame>
+
+            <!-- ============================================ -->
+            <!-- Guide Tab Content (unchanged)                -->
+            <!-- ============================================ -->
+            <Frame name="Guda_SettingsPopup_GuideTab" hidden="true">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="$parent" relativePoint="TOPLEFT">
+                        <Offset><AbsDimension x="15" y="-90"/></Offset>
+                    </Anchor>
+                    <Anchor point="BOTTOMRIGHT" relativeTo="$parent" relativePoint="BOTTOMRIGHT">
+                        <Offset><AbsDimension x="-15" y="15"/></Offset>
+                    </Anchor>
+                </Anchors>
+                <Layers>
+                    <Layer level="ARTWORK">
+                        <FontString name="$parent_Instructions" inherits="GameFontHighlight" justifyH="LEFT" justifyV="TOP">
+                            <Size><AbsDimension x="440" y="0"/></Size>
+                            <Anchors>
+                                <Anchor point="TOPLEFT">
+                                    <Offset><AbsDimension x="15" y="-15"/></Offset>
+                                </Anchor>
+                            </Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+            </Frame>
+        </Frames>
+
+        <Scripts>
+            <OnLoad>
+                Guda_SettingsPopup_OnLoad(this)
+            </OnLoad>
+            <OnShow>
+                Guda_SettingsPopup_OnShow(this)
+            </OnShow>
+            <OnMouseDown>
+                if (arg1 == "LeftButton") then
+                    this:StartMoving()
+                end
+            </OnMouseDown>
+            <OnMouseUp>
+                this:StopMovingOrSizing()
+            </OnMouseUp>
+        </Scripts>
+    </Frame>
+
+    <!-- Category Editor Popup -->
+    <Frame name="Guda_CategoryEditor" toplevel="true" movable="true" enableMouse="true" hidden="true" parent="UIParent" frameStrata="DIALOG">
+        <Size>
+            <AbsDimension x="400" y="480"/>
+        </Size>
+
+        <Anchors>
+            <Anchor point="CENTER" relativePoint="CENTER" relativeTo="UIParent">
+                <Offset>
+                    <AbsDimension x="0" y="50"/>
+                </Offset>
+            </Anchor>
+        </Anchors>
+
+        <Layers>
+            <Layer level="ARTWORK">
+                <!-- Title -->
+                <FontString name="$parent_Title" inherits="GameFontNormalLarge" text="Edit Category">
+                    <Anchors>
+                        <Anchor point="TOP">
+                            <Offset>
+                                <AbsDimension x="0" y="-15"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                    <Color r="1" g="0.82" b="0"/>
+                </FontString>
+
+                <!-- Name Label -->
+                <FontString name="$parent_NameLabel" inherits="GameFontNormal" text="Name:">
+                    <Anchors>
+                        <Anchor point="TOPLEFT">
+                            <Offset>
+                                <AbsDimension x="20" y="-45"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+
+                <!-- Match Mode Label -->
+                <FontString name="$parent_MatchModeLabel" inherits="GameFontNormal" text="Match Mode:">
+                    <Anchors>
+                        <Anchor point="TOPLEFT">
+                            <Offset>
+                                <AbsDimension x="20" y="-110"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+
+                <!-- Rules Label -->
+                <FontString name="$parent_RulesLabel" inherits="GameFontNormal" text="Rules:">
+                    <Anchors>
+                        <Anchor point="TOPLEFT">
+                            <Offset>
+                                <AbsDimension x="20" y="-145"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+            </Layer>
+        </Layers>
+
+        <Frames>
+            <!-- Close Button -->
+            <Button name="$parent_CloseButton" inherits="UIPanelCloseButton">
+                <Anchors>
+                    <Anchor point="TOPRIGHT">
+                        <Offset>
+                            <AbsDimension x="-5" y="-5"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda_CategoryEditor:Hide()
+                    </OnClick>
+                </Scripts>
+            </Button>
+
+            <!-- Name EditBox -->
+            <EditBox name="Guda_CategoryEditor_NameEditBox" autoFocus="false" inherits="InputBoxTemplate">
+                <Size>
+                    <AbsDimension x="150" y="20"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="TOPLEFT">
+                        <Offset>
+                            <AbsDimension x="80" y="-42"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnEscapePressed>
+                        this:ClearFocus()
+                    </OnEscapePressed>
+                    <OnEnterPressed>
+                        this:ClearFocus()
+                    </OnEnterPressed>
+                </Scripts>
+            </EditBox>
+
+            <!-- Match Mode: Any Radio -->
+            <CheckButton name="Guda_CategoryEditor_MatchAny" inherits="UIRadioButtonTemplate">
+                <Size>
+                    <AbsDimension x="20" y="20"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="TOPLEFT">
+                        <Offset>
+                            <AbsDimension x="100" y="-122"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda_CategoryEditor_SetMatchMode("any")
+                    </OnClick>
+                </Scripts>
+            </CheckButton>
+
+            <!-- Match Mode: All Radio -->
+            <CheckButton name="Guda_CategoryEditor_MatchAll" inherits="UIRadioButtonTemplate">
+                <Size>
+                    <AbsDimension x="20" y="20"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="LEFT" relativeTo="Guda_CategoryEditor_MatchAny" relativePoint="RIGHT">
+                        <Offset>
+                            <AbsDimension x="60" y="0"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda_CategoryEditor_SetMatchMode("all")
+                    </OnClick>
+                </Scripts>
+            </CheckButton>
+
+            <!-- Rules ScrollFrame -->
+            <ScrollFrame name="Guda_CategoryEditor_RulesScrollFrame" inherits="FauxScrollFrameTemplate">
+                <Size>
+                    <AbsDimension x="335" y="235"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="TOPLEFT">
+                        <Offset>
+                            <AbsDimension x="20" y="-175"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnVerticalScroll>
+                        FauxScrollFrame_OnVerticalScroll(this, arg1, 28, Guda_CategoryEditor_UpdateRulesDisplay)
+                    </OnVerticalScroll>
+                </Scripts>
+            </ScrollFrame>
+
+            <!-- Rules Container (child of scroll frame) -->
+            <Frame name="Guda_CategoryEditor_RulesContainer">
+                <Size>
+                    <AbsDimension x="310" y="280"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativeTo="Guda_CategoryEditor_RulesScrollFrame" relativePoint="TOPLEFT"/>
+                </Anchors>
+            </Frame>
+
+            <!-- Add Rule Button -->
+            <Button name="Guda_CategoryEditor_AddRuleButton" inherits="UIPanelButtonTemplate">
+                <Size>
+                    <AbsDimension x="100" y="22"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="TOPRIGHT">
+                        <Offset>
+                            <AbsDimension x="-20" y="-157"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda_CategoryEditor_AddRule()
+                    </OnClick>
+                </Scripts>
+            </Button>
+
+            <!-- Save Button -->
+            <Button name="Guda_CategoryEditor_SaveButton" inherits="UIPanelButtonTemplate">
+                <Size>
+                    <AbsDimension x="100" y="25"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="BOTTOMRIGHT">
+                        <Offset>
+                            <AbsDimension x="-20" y="15"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda_CategoryEditor_Save()
+                    </OnClick>
+                </Scripts>
+            </Button>
+
+            <!-- Cancel Button -->
+            <Button name="Guda_CategoryEditor_CancelButton" inherits="UIPanelButtonTemplate">
+                <Size>
+                    <AbsDimension x="100" y="25"/>
+                </Size>
+                <Anchors>
+                    <Anchor point="RIGHT" relativeTo="Guda_CategoryEditor_SaveButton" relativePoint="LEFT">
+                        <Offset>
+                            <AbsDimension x="-10" y="0"/>
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+                <Scripts>
+                    <OnClick>
+                        Guda_CategoryEditor:Hide()
+                    </OnClick>
+                </Scripts>
+            </Button>
+        </Frames>
+
+        <Scripts>
+            <OnLoad>
+                Guda_CategoryEditor_OnLoad(this)
+            </OnLoad>
+            <OnShow>
+                Guda_CategoryEditor_OnShow(this)
+            </OnShow>
+            <OnMouseDown>
+                if (arg1 == "LeftButton") then
+                    this:StartMoving()
+                end
+            </OnMouseDown>
+            <OnMouseUp>
+                this:StopMovingOrSizing()
+            </OnMouseUp>
+        </Scripts>
+    </Frame>
+
+</Ui>

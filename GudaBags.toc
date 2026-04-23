@@ -1,0 +1,54 @@
+## Interface: 30300
+## Title: GudaBags
+## Notes: All-in-one bag and bank addon for World of Warcraft 3.3.5a (WotLK / Ascension Epoch)
+## Author: Vati
+## Version: 2.3.2-wotlk
+## SavedVariables: Guda_DB
+## SavedVariablesPerCharacter: Guda_CharDB
+## X-Client: WotLK 3.3.5a
+
+Localization.lua
+GudaShared.lua
+
+Core\Init.lua
+Core\ClientCompat.lua
+Core\Theme.lua
+Core\Constants.lua
+Core\Database.lua
+Core\SharedData.lua
+DB\QuestItems.lua
+Core\Events.lua
+Core\Utils.lua
+Core\ItemDetection.lua
+Core\CategoryManager.lua
+Core\Tooltip.lua
+Core\ClamOpener.lua
+Core\AutoLoot.lua
+Core\CacheWarmer.lua
+
+Data\BagScanner.lua
+Data\BankScanner.lua
+Data\MailboxScanner.lua
+Data\MoneyTracker.lua
+Data\EquipmentScanner.lua
+Data\EquipmentSets.lua
+
+Sorting\SortEngine.lua
+Sorting\BagReplacer.lua
+
+# UI Lua must load before XML so OnLoad handlers exist
+UI\ItemButton.lua
+UI\FrameHelpers.lua
+UI\BagFrame.lua
+UI\BankFrame.lua
+UI\MailboxFrame.lua
+UI\QuestItemBar.lua
+UI\TrackedItemBar.lua
+UI\SettingsPopup.lua
+UI\ItemButton.xml
+UI\BagFrame.xml
+UI\BankFrame.xml
+UI\MailboxFrame.xml
+UI\SettingsPopup.xml
+
+Core\Main.lua
