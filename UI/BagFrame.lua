@@ -1955,6 +1955,55 @@ function BagFrame:CreateHearthstoneFrame()
 		-- the anchor; SetAlpha(0) keeps it invisible until bag shows.
 		anchor:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -100, -100)
 		anchor:SetAlpha(0)
+		-- Strata: the bag frame has toplevel="true", which re-raises it to
+		-- the top of its own strata on every click/drag. If the anchor sat
+		-- on the same strata, dragging the bag frame would shove the
+		-- hearthstone behind it every time. Place the anchor ONE strata
+		-- above the bag frame so no amount of re-raising can overlap it.
+		-- Since the anchor is parented to UIParent (not to the bag frame)
+		-- it does NOT inherit strata automatically.
+		local strataOrder = {
+			BACKGROUND = 1,
+			LOW = 2,
+			MEDIUM = 3,
+			HIGH = 4,
+			DIALOG = 5,
+			FULLSCREEN = 6,
+			FULLSCREEN_DIALOG = 7,
+			TOOLTIP = 8,
+		}
+		local strataByIndex = {
+			"BACKGROUND", "LOW", "MEDIUM", "HIGH",
+			"DIALOG", "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP",
+		}
+		local bagFrame = getglobal("Guda_BagFrame")
+		local baseStrata = (bagFrame and bagFrame.GetFrameStrata and bagFrame:GetFrameStrata()) or "MEDIUM"
+		local nextIdx = (strataOrder[baseStrata] or 3) + 1
+		if nextIdx > 8 then nextIdx = 8 end
+		anchor:SetFrameStrata(strataByIndex[nextIdx])
+
+		-- Continuously track the BagSlotsInfo label's right edge. The anchor
+		-- can't SetPoint directly to `info` (that would make Guda_BagFrame
+		-- anchored-to-a-protected-frame and reintroduce the combat lockdown
+		-- bug), so we poll the label's screen position and restate our
+		-- UIParent-relative SetPoint whenever it changes. Cached last-pos
+		-- diff check keeps the steady-state cost near zero.
+		anchor:SetScript("OnUpdate", function()
+			if InCombatLockdown and InCombatLockdown() then return end
+			local bf = getglobal("Guda_BagFrame")
+			if not (bf and bf:IsShown()) then return end
+			local info = getglobal("Guda_BagFrame_Toolbar_BagSlotsInfo")
+			if not (info and info.GetCenter) then return end
+			local cx, cy = info:GetCenter()
+			if not cx or not cy then return end
+			local infoW = info:GetWidth() or 0
+			local desiredX = cx + infoW / 2 + 6 + (this:GetWidth() or 20) / 2
+			if this._lastAnchorX == desiredX and this._lastAnchorY == cy then return end
+			this._lastAnchorX = desiredX
+			this._lastAnchorY = cy
+			this:ClearAllPoints()
+			this:SetPoint("CENTER", UIParent, "BOTTOMLEFT", desiredX, cy)
+		end)
 	end
 
 	local toolbar = getglobal("Guda_BagFrame_Toolbar")
@@ -1965,7 +2014,14 @@ function BagFrame:CreateHearthstoneFrame()
 	-- Anchor the secure button to its non-secure parent anchor, never to
 	-- anything in the Guda_BagFrame hierarchy.
 	frame:SetPoint("CENTER", anchor, "CENTER", 0, 0)
-	frame:SetFrameLevel((toolbar and toolbar:GetFrameLevel() or 5) + 5)
+
+	-- Frame level: place the whole anchor + button stack visibly above
+	-- Guda_BagFrame_Toolbar. The anchor is on UIParent so it has an
+	-- independent level counter from the bag frame; give it a high base
+	-- and keep the button one step higher.
+	local baseLevel = (toolbar and toolbar:GetFrameLevel() or 5) + 5
+	anchor:SetFrameLevel(baseLevel)
+	frame:SetFrameLevel(baseLevel + 1)
 
 	-- Icon texture
 	local icon = frame:CreateTexture(frameName .. "_Icon", "ARTWORK")
