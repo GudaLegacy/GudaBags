@@ -150,18 +150,110 @@ function QuestItemBar:PinItem(itemID, slot)
     return true
 end
 
--- Update the bar buttons
+-- Create a single quest-bar slot button. Extracted from the Update loop so
+-- the same button-construction code path is reachable from Initialize
+-- (pre-warm, out of combat) and Update (fallback if a slot is ever missing).
+-- Returns nil if called during combat (CreateFrame on the secure template
+-- is forbidden).
+function QuestItemBar:CreateSlotButton(parent, i)
+    if not parent then return nil end
+    if buttons[i] then return buttons[i] end
+    if InCombatLockdown and InCombatLockdown() then return nil end
+
+    -- SecureActionButtonTemplate lets the engine dispatch item-use through a
+    -- secure path (type="item" / "item" attribute). Without it, a tainted
+    -- SetScript("OnClick", ...) calling UseContainerItem on a consumable
+    -- quest item triggers the Ascension 3.3.5a "GudaBags has been blocked
+    -- from an action only available to the Blizzard UI" popup.
+    local button = CreateFrame(
+        "Button",
+        "Guda_QuestItemBarButton" .. i,
+        parent,
+        "Guda_ItemButtonTemplate, SecureActionButtonTemplate"
+    )
+    button:SetAttribute("type", "item")
+    buttons[i] = button
+
+    button:RegisterForDrag("LeftButton")
+    button:SetScript("OnDragStart", function() end)
+    button:SetScript("OnReceiveDrag", function() end)
+    -- OnMouseDown handles two intercepts before the secure OnClick:
+    --   * Alt+Right-Click: unpin this slot (must suppress so the secure
+    --     dispatcher doesn't ALSO use the item on the now-unpinned slot)
+    --   * Shift+Left-Click: start moving the bar
+    -- Default left/right-click without modifiers falls through to the
+    -- secure dispatcher (type="item") and uses the item.
+    button:SetScript("OnMouseDown", function()
+        if arg1 == "RightButton" and IsAltKeyDown() then
+            local slot = this.slotIndex
+            if slot then
+                local pins = addon.Modules.DB:GetSetting("questBarPinnedItems") or {}
+                pins[slot] = nil
+                addon.Modules.DB:SetSetting("questBarPinnedItems", pins)
+                QuestItemBar:Update()
+            end
+            if Guda_SuppressNextClick then
+                Guda_SuppressNextClick(this)
+            end
+            return
+        end
+        if arg1 == "LeftButton" then
+            local p = this:GetParent()
+            if p and IsShiftKeyDown() and not p.isMoving and not (CursorHasItem and CursorHasItem()) then
+                p:StartMoving()
+                p.isMoving = true
+            end
+        end
+    end)
+    button:SetScript("OnMouseUp", function()
+        if arg1 == "LeftButton" then
+            local p = this:GetParent()
+            if p and p.isMoving then
+                p:StopMovingOrSizing()
+                p.isMoving = false
+                local point, _, relativePoint, x, y = p:GetPoint()
+                if point then
+                    addon.Modules.DB:SetSetting("questBarPosition", {point = point, relativePoint = relativePoint, x = x, y = y})
+                end
+            end
+        end
+    end)
+
+    button.slotIndex = i
+    button:Hide()
+    return button
+end
+
+-- Pre-warm both quest-bar slot buttons at Initialize (out of combat) so
+-- Update never has to CreateFrame a secure template during combat.
+function QuestItemBar:PreCreateButtons()
+    local frame = Guda_QuestItemBar
+    if not frame then return end
+    self:CreateSlotButton(frame, 1)
+    self:CreateSlotButton(frame, 2)
+end
+
+-- Update the bar buttons.
+-- Every button is a SecureActionButton; in combat, Show/Hide/SetAttribute/
+-- SetPoint on them is forbidden. Skip the refresh during combat and re-run
+-- on PLAYER_REGEN_ENABLED — the bar stays in its pre-combat state until
+-- combat ends.
 function QuestItemBar:Update()
     local showQuestBar = addon.Modules.DB:GetSetting("showQuestBar")
     local frame = Guda_QuestItemBar
-    
+
     if not frame then return end
+
+    if InCombatLockdown and InCombatLockdown() then
+        self._deferredUpdate = true
+        return
+    end
 
     if showQuestBar == false then
         frame:Hide()
         return
     end
-    
+
     self:ScanForQuestItems()
     
     -- If no quest items found, hide the bar
@@ -188,61 +280,15 @@ function QuestItemBar:Update()
         local index = i
         local button = buttons[i]
         if not button then
-            -- SecureActionButtonTemplate lets the engine dispatch item-use
-            -- through a secure path (type="item" / "item" attribute). Without
-            -- it, a tainted SetScript("OnClick", ...) calling UseContainerItem
-            -- on a consumable quest item triggers the Ascension 3.3.5a
-            -- "GudaBags has been blocked from an action only available to the
-            -- Blizzard UI" popup.
-            button = CreateFrame("Button", "Guda_QuestItemBarButton" .. i, frame, "Guda_ItemButtonTemplate, SecureActionButtonTemplate")
-            button:SetAttribute("type", "item")
-            table.insert(buttons, button)
-
-            -- Set up the button once
-            button:RegisterForDrag("LeftButton")
-            button:SetScript("OnDragStart", function() end)
-            button:SetScript("OnReceiveDrag", function() end)
-            -- OnMouseDown handles two intercepts before the secure OnClick:
-            --   * Alt+Right-Click: unpin this slot (must suppress so the secure
-            --     dispatcher doesn't ALSO use the item on the now-unpinned slot)
-            --   * Shift+Left-Click: start moving the bar
-            -- Default left/right-click without modifiers falls through to the
-            -- secure dispatcher (type="item") and uses the item.
-            button:SetScript("OnMouseDown", function()
-                if arg1 == "RightButton" and IsAltKeyDown() then
-                    local slot = this.slotIndex
-                    if slot then
-                        local pins = addon.Modules.DB:GetSetting("questBarPinnedItems") or {}
-                        pins[slot] = nil
-                        addon.Modules.DB:SetSetting("questBarPinnedItems", pins)
-                        QuestItemBar:Update()
-                    end
-                    if Guda_SuppressNextClick then
-                        Guda_SuppressNextClick(this)
-                    end
-                    return
-                end
-                if arg1 == "LeftButton" then
-                    local parent = this:GetParent()
-                    if parent and IsShiftKeyDown() and not parent.isMoving and not (CursorHasItem and CursorHasItem()) then
-                        parent:StartMoving()
-                        parent.isMoving = true
-                    end
-                end
-            end)
-            button:SetScript("OnMouseUp", function()
-                if arg1 == "LeftButton" then
-                    local parent = this:GetParent()
-                    if parent and parent.isMoving then
-                        parent:StopMovingOrSizing()
-                        parent.isMoving = false
-                        local point, _, relativePoint, x, y = parent:GetPoint()
-                        if point then
-                            addon.Modules.DB:SetSetting("questBarPosition", {point = point, relativePoint = relativePoint, x = x, y = y})
-                        end
-                    end
-                end
-            end)
+            -- Fallback: first Update ever ran while PreCreateButtons hadn't
+            -- run yet. Out of combat this still works; in combat it will
+            -- fail silently since CreateFrame on a secure template is
+            -- blocked. Initialize should always call PreCreateButtons first.
+            button = QuestItemBar:CreateSlotButton(frame, i)
+        end
+        if not button then
+            -- Creation failed (combat lockdown) — skip this slot this Update.
+            break
         end
 
         -- Track which slot this button represents so the OnMouseDown closure
@@ -773,6 +819,20 @@ function QuestItemBar:Initialize()
     addon.Modules.Events:Register("PLAYER_ENTERING_WORLD", function()
         QuestItemBar:Update()
     end, "QuestItemBar")
+
+    -- Re-run any refresh deferred while the player was in combat.
+    addon.Modules.Events:Register("PLAYER_REGEN_ENABLED", function()
+        if QuestItemBar._deferredUpdate then
+            QuestItemBar._deferredUpdate = false
+            QuestItemBar:Update()
+        end
+    end, "QuestItemBar")
+
+    -- Rule 3 (RULES.md): pre-create both secure slot buttons out of combat.
+    -- Without this, if the player first acquires a quest item mid-combat,
+    -- Update would try to CreateFrame a secure template during lockdown and
+    -- silently fail.
+    QuestItemBar:PreCreateButtons()
 
     QuestItemBar:Update()
     addon:Debug("QuestItemBar initialized")

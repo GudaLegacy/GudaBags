@@ -6,6 +6,52 @@ local buttonPool = {}
 local nextButtonID = 1
 local BUTTON_POOL_MAX = 500  -- Maximum buttons to create (bags ~80 + bank ~200 + keyring ~96 + buffer for both frames open)
 
+-- Hidden holder frame for pre-warmed buttons. Created lazily so the module
+-- load order doesn't matter. All pre-warmed buttons are parented here so they
+-- have a valid parent before their real bag/bank parent is assigned; the
+-- existing Guda_GetItemButton reparenting path handles the handoff.
+local preWarmHolder = nil
+local function GetPreWarmHolder()
+    if not preWarmHolder then
+        preWarmHolder = CreateFrame("Frame", "Guda_ItemButtonPreWarmHolder", UIParent)
+        preWarmHolder:Hide()
+        preWarmHolder.itemButtons = {}
+    end
+    return preWarmHolder
+end
+
+-- Pre-warm the button pool at PLAYER_LOGIN so the secure
+-- ContainerFrameItemButtonTemplate inheritance never has to CreateFrame
+-- during combat. Rule 3 of RULES.md: every secure item button must exist
+-- before combat starts. This function is a no-op in combat (guards itself)
+-- and safe to call multiple times (idempotent up to the target count).
+function Guda_PreWarmButtonPool(count)
+    if InCombatLockdown and InCombatLockdown() then return end
+    if not count or count < 1 then return end
+    if count > BUTTON_POOL_MAX then count = BUTTON_POOL_MAX end
+
+    local holder = GetPreWarmHolder()
+    local created = 0
+    while nextButtonID <= count do
+        local button = CreateFrame(
+            "Button",
+            "Guda_ItemButton" .. nextButtonID,
+            holder,
+            "Guda_ItemButtonTemplate"
+        )
+        buttonPool[nextButtonID] = button
+        button.inUse = false
+        button:Hide()
+        nextButtonID = nextButtonID + 1
+        created = created + 1
+    end
+
+    if created > 0 and addon and addon.Debug then
+        addon:Debug("PreWarm: created %d item buttons (pool now %d / %d)",
+            created, nextButtonID - 1, BUTTON_POOL_MAX)
+    end
+end
+
 -- Category drag-drop: track cursor item for category reassignment
 local cursorItemInfo = nil  -- { bagID, slotID, itemID, link }
 local activeCategoryDropIndicator = nil  -- the currently shown "+" indicator button

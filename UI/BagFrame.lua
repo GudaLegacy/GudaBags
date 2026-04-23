@@ -221,7 +221,15 @@ function Guda_BagFrame_OnShow(self)
 	addon.Modules.BagScanner:SaveToDatabase()
 	addon.Modules.MoneyTracker:Update()
 
-	-- Restore saved position if it exists (only if saved as BOTTOMRIGHT)
+	-- Reveal the hearthstone anchor (non-protected op, safe in combat).
+	if BagFrame.SetHearthstoneAnchorVisible then
+		BagFrame:SetHearthstoneAnchorVisible(true)
+	end
+
+	-- Restore saved position if it exists (only if saved as BOTTOMRIGHT).
+	-- Skip in combat — repositioning the bag frame via SetPoint is still
+	-- allowed because the frame has no protected descendants now, but the
+	-- position is restored on the next out-of-combat show anyway.
 	if addon and addon.Modules and addon.Modules.DB then
 		local pos = addon.Modules.DB:GetSetting("bagFramePosition")
 		if pos and pos.point == "BOTTOMRIGHT" and pos.x and pos.y then
@@ -271,6 +279,13 @@ end
 function Guda_BagFrame_OnHide(self)
 	-- Play bag close sound
 	PlaySound("igBackPackClose")
+
+	-- Fade the hearthstone anchor to invisible (non-protected op; safe in
+	-- combat). Its parent-chain independence from Guda_BagFrame is what
+	-- lets the bag frame itself toggle in combat.
+	if BagFrame.SetHearthstoneAnchorVisible then
+		BagFrame:SetHearthstoneAnchorVisible(false)
+	end
 
 	-- Close any open dropdown menus when the bag frame is hidden
 	CloseDropDownMenus()
@@ -700,9 +715,14 @@ function BagFrame:UpdateBaglineLayout()
 	local keyring = getglobal("Guda_BagFrame_Toolbar_KeyringButton")
 	local soulbag = getglobal("Guda_BagFrame_Toolbar_SoulBagButton")
 	local info = getglobal("Guda_BagFrame_Toolbar_BagSlotsInfo")
-	local hearthstone = getglobal("Guda_BagFrame_HearthstoneFrame")
 	local disenchant = getglobal("Guda_BagFrame_DisenchantFrame")
 	local lockpick = getglobal("Guda_BagFrame_LockpickFrame")
+
+	-- Hearthstone is NOT a toolbar child anymore (lives under the
+	-- UIParent-anchored Guda_HearthstoneAnchor). Disenchant/lockpick buttons
+	-- used to chain through it; they now anchor through `info` directly.
+	-- The hearthstone's own visual position is restored out of combat via
+	-- UpdateHearthstoneAnchorPosition() at the end of this function.
 
 	-- Determine last visible special button for info anchor
 	local lastButton = keyring
@@ -745,25 +765,25 @@ function BagFrame:UpdateBaglineLayout()
 			info:SetPoint("LEFT", lastButton, "RIGHT", 8, 0)
 		end
 
-		-- Anchor hearthstone next to info
-		if hearthstone then
-			hearthstone:ClearAllPoints()
-			hearthstone:SetPoint("LEFT", info, "RIGHT", 6, 0)
-		end
+		-- Hearthstone sits to the right of `info`, visually — positioned via
+		-- Guda_HearthstoneAnchor on UIParent (see
+		-- UpdateHearthstoneAnchorPosition below). Leave 26px for its slot.
 
-		-- Anchor disenchant next to hearthstone
+		-- Anchor disenchant next to info (past where hearthstone floats)
 		if disenchant and disenchant:IsShown() then
 			disenchant:ClearAllPoints()
-			local anchor = hearthstone or info
-			disenchant:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+			disenchant:SetPoint("LEFT", info, "RIGHT", 32, 0)
 		end
 
-		-- Anchor lockpick next to disenchant (or hearthstone if no disenchant)
+		-- Anchor lockpick next to disenchant (or past hearthstone slot if
+		-- disenchant isn't shown)
 		if lockpick and lockpick:IsShown() then
 			lockpick:ClearAllPoints()
-			local anchor = (disenchant and disenchant:IsShown()) and disenchant
-			            or hearthstone or info
-			lockpick:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+			if disenchant and disenchant:IsShown() then
+				lockpick:SetPoint("LEFT", disenchant, "RIGHT", 6, 0)
+			else
+				lockpick:SetPoint("LEFT", info, "RIGHT", 32, 0)
+			end
 		end
 	else
 		-- Standard horizontal layout - all bags visible
@@ -803,25 +823,25 @@ function BagFrame:UpdateBaglineLayout()
 			info:SetPoint("LEFT", lastButton, "RIGHT", 8, 0)
 		end
 
-		-- Anchor hearthstone next to info
-		if hearthstone then
-			hearthstone:ClearAllPoints()
-			hearthstone:SetPoint("LEFT", info, "RIGHT", 6, 0)
-		end
+		-- Hearthstone sits to the right of `info`, visually — positioned via
+		-- Guda_HearthstoneAnchor on UIParent (see
+		-- UpdateHearthstoneAnchorPosition below). Leave 26px for its slot.
 
-		-- Anchor disenchant next to hearthstone
+		-- Anchor disenchant next to info (past where hearthstone floats)
 		if disenchant and disenchant:IsShown() then
 			disenchant:ClearAllPoints()
-			local anchor = hearthstone or info
-			disenchant:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+			disenchant:SetPoint("LEFT", info, "RIGHT", 32, 0)
 		end
 
-		-- Anchor lockpick next to disenchant (or hearthstone if no disenchant)
+		-- Anchor lockpick next to disenchant (or past hearthstone slot if
+		-- disenchant isn't shown)
 		if lockpick and lockpick:IsShown() then
 			lockpick:ClearAllPoints()
-			local anchor = (disenchant and disenchant:IsShown()) and disenchant
-			            or hearthstone or info
-			lockpick:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+			if disenchant and disenchant:IsShown() then
+				lockpick:SetPoint("LEFT", disenchant, "RIGHT", 6, 0)
+			else
+				lockpick:SetPoint("LEFT", info, "RIGHT", 32, 0)
+			end
 		end
 
 		-- Hide flyout when switching to full bagline
@@ -830,6 +850,14 @@ function BagFrame:UpdateBaglineLayout()
 
 	-- Update soul shard count
 	Guda_BagFrame_UpdateSoulBagCount()
+
+	-- Reposition the UIParent-anchored hearthstone so it visually floats
+	-- next to the toolbar info label. Skipped in combat (SetPoint on a
+	-- frame with a protected descendant is combat-forbidden); the
+	-- PLAYER_REGEN_ENABLED handler catches up once combat ends.
+	if self.UpdateHearthstoneAnchorPosition then
+		self:UpdateHearthstoneAnchorPosition()
+	end
 end
 
 -- Deferred update state for frame budgeting
@@ -1905,22 +1933,39 @@ local HEARTHSTONE_ID = 6948
 -- OnClick that called UseContainerItem taints the spell-cast chain on
 -- Ascension 3.3.5a and produces "GudaBags has been blocked from an action
 -- only available to the Blizzard UI" when the hearthstone cast starts.
+--
+-- The secure button lives under Guda_HearthstoneAnchor (a plain Frame
+-- parented directly to UIParent), NOT under Guda_BagFrame_Toolbar. If the
+-- protected button were a descendant of Guda_BagFrame, 3.3.5a's combat
+-- lockdown would propagate protection up the parent/anchor chain and
+-- Guda_BagFrame:Show()/:Hide()/:SetPoint() would be forbidden in combat —
+-- i.e. pressing B mid-fight would silently fail. Keeping the anchor on
+-- UIParent isolates the protected subtree so the main bag frame stays
+-- unprotected and toggles normally in combat.
 function BagFrame:CreateHearthstoneFrame()
 	local frameName = "Guda_BagFrame_HearthstoneFrame"
 	if getglobal(frameName) then return end
 
-	local toolbar = getglobal("Guda_BagFrame_Toolbar") or Guda_BagFrame
-	local frame = CreateFrame("Button", frameName, toolbar, "SecureActionButtonTemplate")
+	local anchor = getglobal("Guda_HearthstoneAnchor")
+	if not anchor then
+		anchor = CreateFrame("Frame", "Guda_HearthstoneAnchor", UIParent)
+		anchor:SetWidth(20)
+		anchor:SetHeight(20)
+		-- Parked off-screen until the bag frame first lays out and positions
+		-- the anchor; SetAlpha(0) keeps it invisible until bag shows.
+		anchor:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -100, -100)
+		anchor:SetAlpha(0)
+	end
+
+	local toolbar = getglobal("Guda_BagFrame_Toolbar")
+
+	local frame = CreateFrame("Button", frameName, anchor, "SecureActionButtonTemplate")
 	frame:SetWidth(20)
 	frame:SetHeight(20)
-	-- Default anchor; will be repositioned by UpdateBaglineLayout
-	local info = getglobal("Guda_BagFrame_Toolbar_BagSlotsInfo")
-	if info then
-		frame:SetPoint("LEFT", info, "RIGHT", 6, 0)
-	else
-		frame:SetPoint("LEFT", toolbar, "LEFT", 0, 0)
-	end
-	frame:SetFrameLevel((toolbar:GetFrameLevel() or 5) + 5)
+	-- Anchor the secure button to its non-secure parent anchor, never to
+	-- anything in the Guda_BagFrame hierarchy.
+	frame:SetPoint("CENTER", anchor, "CENTER", 0, 0)
+	frame:SetFrameLevel((toolbar and toolbar:GetFrameLevel() or 5) + 5)
 
 	-- Icon texture
 	local icon = frame:CreateTexture(frameName .. "_Icon", "ARTWORK")
@@ -1973,17 +2018,65 @@ function BagFrame:FindHearthstone()
 	return nil, nil, nil
 end
 
--- Update hearthstone display
+-- Position the (non-secure) hearthstone anchor over the toolbar's info
+-- label. Called out-of-combat only; SetPoint on a frame with a protected
+-- descendant (Guda_HearthstoneAnchor has the secure hearthstone button as
+-- a child) is combat-forbidden. The anchor stays where it was until combat
+-- ends; PLAYER_REGEN_ENABLED triggers a reposition.
+function BagFrame:UpdateHearthstoneAnchorPosition()
+	if InCombatLockdown and InCombatLockdown() then return end
+	local anchor = getglobal("Guda_HearthstoneAnchor")
+	if not anchor then return end
+	local info = getglobal("Guda_BagFrame_Toolbar_BagSlotsInfo")
+	if not info or not info.GetCenter then return end
+	local x, y = info:GetCenter()
+	if not x or not y then return end
+	-- Place anchor 6px to the right of the info label's right edge,
+	-- vertically centered on it. Working in absolute UIParent coords keeps
+	-- the anchor chain disconnected from Guda_BagFrame.
+	local infoWidth = info:GetWidth() or 0
+	local desiredX = x + infoWidth / 2 + 6 + (anchor:GetWidth() or 20) / 2
+	anchor:ClearAllPoints()
+	anchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", desiredX, y)
+end
+
+-- Toggle hearthstone anchor visibility. SetAlpha on a frame with a
+-- protected descendant IS allowed in combat (unlike Show/Hide), so this
+-- is safe to call from any context. EnableMouse IS protected, so we only
+-- change it out of combat; the invisible frame (alpha=0) doesn't visually
+-- intercept clicks either way.
+function BagFrame:SetHearthstoneAnchorVisible(visible)
+	local anchor = getglobal("Guda_HearthstoneAnchor")
+	if not anchor then return end
+	anchor:SetAlpha(visible and 1 or 0)
+	if not (InCombatLockdown and InCombatLockdown()) then
+		anchor:EnableMouse(visible and true or false)
+	end
+end
+
+-- Update hearthstone display.
+-- The button itself is a SecureActionButton, but its PARENT is the
+-- non-secure Guda_HearthstoneAnchor (parented to UIParent, not to the bag
+-- frame). That means:
+--   * SetAlpha on the anchor works in combat (use for visibility).
+--   * SetAttribute on the button is still combat-forbidden (guarded).
+--   * The cooldown swipe child is non-secure, CooldownFrame_SetTimer safe.
+-- A PLAYER_REGEN_ENABLED hook re-runs this once combat ends so the button
+-- catches up on any deferred SetAttribute.
 function BagFrame:UpdateHearthstone()
 	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
 	local frame = getglobal("Guda_BagFrame_HearthstoneFrame")
+	local inCombat = InCombatLockdown and InCombatLockdown()
 
 	if hideFooter then
-		if frame then frame:Hide() end
+		self:SetHearthstoneAnchorVisible(false)
 		return
 	end
 
 	if not frame then
+		-- Creating a new SecureActionButton + SetAttribute is blocked in
+		-- combat; defer first creation until regen.
+		if inCombat then return end
 		self:CreateHearthstoneFrame()
 		frame = getglobal("Guda_BagFrame_HearthstoneFrame")
 	end
@@ -1992,15 +2085,12 @@ function BagFrame:UpdateHearthstone()
 
 	local bag, slot, link = self:FindHearthstone()
 
-	-- Secure attribute mutation is forbidden during combat; skip and let the
-	-- previous value ride (the hearthstone location rarely moves mid-fight).
-	local canUpdateAttr = not (InCombatLockdown and InCombatLockdown())
+	-- Faded alpha when the hearthstone is missing from bags.
+	frame:SetAlpha(bag and 1 or 0.3)
 
 	if bag then
-		frame:SetAlpha(1)
-		frame:Show()
-
-		-- Update cooldown
+		-- Cooldown update (CooldownFrame_SetTimer on a non-protected Cooldown
+		-- child is safe in combat).
 		local start, duration, enable = GetContainerItemCooldown(bag, slot)
 		if frame.cooldown and start and duration and duration > 0 then
 			CooldownFrame_SetTimer(frame.cooldown, start, duration, enable)
@@ -2008,27 +2098,21 @@ function BagFrame:UpdateHearthstone()
 			frame.cooldown:Hide()
 		end
 
-		-- Store location for tooltip display
 		frame.bag = bag
 		frame.slot = slot
 		frame.link = link
-
-		-- Point the secure dispatcher at the current hearthstone link.
-		if canUpdateAttr then
-			frame:SetAttribute("item", link)
-		end
 	else
-		frame:SetAlpha(0.3)
-		frame:Show()
 		frame.bag = nil
 		frame.slot = nil
 		frame.link = nil
 		if frame.cooldown then
 			frame.cooldown:Hide()
 		end
-		if canUpdateAttr then
-			frame:SetAttribute("item", nil)
-		end
+	end
+
+	-- SetAttribute is combat-protected; skip in combat.
+	if not inCombat then
+		frame:SetAttribute("item", bag and link or nil)
 	end
 end
 
@@ -3863,25 +3947,29 @@ function BagFrame:ToggleSearchBar()
 	if BagFrame.Update then BagFrame:Update() end
 end
 
--- Update footer visibility based on settings
+-- Update footer visibility based on settings.
+-- The hearthstone button is protected, but its parent anchor
+-- (Guda_HearthstoneAnchor, a plain Frame on UIParent) can have its alpha
+-- toggled in combat safely — so Show/Hide transitions on the hearthstone
+-- are routed through SetHearthstoneAnchorVisible.
 function BagFrame:UpdateFooterVisibility()
 	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
 	local toolbar = getglobal("Guda_BagFrame_Toolbar")
 	local moneyFrame = getglobal("Guda_BagFrame_MoneyFrame")
-	local hearthstoneFrame = getglobal("Guda_BagFrame_HearthstoneFrame")
 	local disenchantFrame = getglobal("Guda_BagFrame_DisenchantFrame")
 	local lockpickFrame = getglobal("Guda_BagFrame_LockpickFrame")
 
 	if hideFooter then
 		if toolbar then toolbar:Hide() end
 		if moneyFrame then moneyFrame:Hide() end
-		if hearthstoneFrame then hearthstoneFrame:Hide() end
+		self:SetHearthstoneAnchorVisible(false)
 		if disenchantFrame then disenchantFrame:Hide() end
 		if lockpickFrame then lockpickFrame:Hide() end
 	else
 		if toolbar then toolbar:Show() end
 		if moneyFrame then moneyFrame:Show() end
-		if hearthstoneFrame then hearthstoneFrame:Show() end
+		-- Bag-frame-visibility alone decides the anchor alpha here; OnShow
+		-- has already set it to visible. Don't toggle off-on redundantly.
 
 		-- Trigger layout updates to ensure they are correctly positioned
 		self:UpdateBaglineLayout()
@@ -4298,6 +4386,27 @@ function BagFrame:Initialize()
 	-- PLAYER_LOGIN event (which would never fire).
 	HookDefaultBags()
 
+	-- Rule 3 (RULES.md): pre-warm the item-button pool before any combat can
+	-- start. Item buttons inherit ContainerFrameItemButtonTemplate (a secure
+	-- template); CreateFrame on a secure template is blocked during combat,
+	-- so if the first bag-open happens mid-fight we must already have the
+	-- buttons we need. Worst case is bags + bank open at once with cached
+	-- character view: ~88 (bags) + ~154 (bank) + margin for drop-target
+	-- placeholders and category sections. 300 covers it comfortably inside
+	-- the 500-button cap.
+	if Guda_PreWarmButtonPool then
+		Guda_PreWarmButtonPool(300)
+	end
+
+	-- Eagerly create the hearthstone footer button while we're guaranteed to
+	-- be out of combat. Same reason: the SecureActionButtonTemplate it
+	-- inherits can't be CreateFrame'd during combat, and deferring to the
+	-- first UpdateHearthstone call (which may happen mid-fight when bags
+	-- open) would fail.
+	if self.CreateHearthstoneFrame then
+		self:CreateHearthstoneFrame()
+	end
+
 	-- Re-hook when character frame is opened (for safety)
 	local charFrame = getglobal("CharacterFrame")
 	if charFrame then
@@ -4591,6 +4700,20 @@ function BagFrame:Initialize()
 	addon.Modules.Events:Register("BANKFRAME_CLOSED", AutoCloseBags, "BagFrame")
 	addon.Modules.Events:Register("AUCTION_HOUSE_CLOSED", AutoCloseBags, "BagFrame")
 	addon.Modules.Events:Register("TRADE_CLOSED", AutoCloseBags, "BagFrame")
+
+	-- When combat ends, catch up on anything we deferred: the hearthstone
+	-- anchor position (SetPoint on the anchor is combat-forbidden because
+	-- of its protected child), the secure SetAttribute on the hearthstone
+	-- button itself, and footer/layout updates that may have touched
+	-- protected operations.
+	addon.Modules.Events:Register("PLAYER_REGEN_ENABLED", function()
+		if BagFrame.UpdateBaglineLayout then BagFrame:UpdateBaglineLayout() end
+		if BagFrame.UpdateFooterVisibility then BagFrame:UpdateFooterVisibility() end
+		if BagFrame.UpdateHearthstone then BagFrame:UpdateHearthstone() end
+		if BagFrame.UpdateHearthstoneAnchorPosition then
+			BagFrame:UpdateHearthstoneAnchorPosition()
+		end
+	end, "BagFrame")
 
 	-- Hide character dropdown when clicking on bag frame
 	local bagFrame = getglobal("Guda_BagFrame")

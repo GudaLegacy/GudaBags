@@ -88,11 +88,124 @@ function TrackedItemBar:ScanForTrackedItems()
     end
 end
 
--- Update the bar buttons
+-- Create a single tracked-bar slot button. Extracted from the Update loop so
+-- the same construction code path is reachable from Initialize (pre-warm,
+-- out of combat) and from Update (fallback if a slot is missing). Returns
+-- nil if called during combat (CreateFrame on the secure template is
+-- forbidden).
+function TrackedItemBar:CreateSlotButton(parent, i)
+    if not parent then return nil end
+    if buttons[i] then return buttons[i] end
+    if InCombatLockdown and InCombatLockdown() then return nil end
+
+    -- SecureActionButtonTemplate lets the engine dispatch item-use through a
+    -- secure path (type="item" / "item" attribute).
+    local button = CreateFrame(
+        "Button",
+        "Guda_TrackedItemBarButton" .. i,
+        parent,
+        "Guda_ItemButtonTemplate, SecureActionButtonTemplate"
+    )
+    button:SetAttribute("type", "item")
+    buttons[i] = button
+
+    -- Quest border (golden)
+    local questBorder = CreateFrame("Frame", nil, button)
+    questBorder:SetFrameLevel(button:GetFrameLevel() + 6)
+    questBorder:SetBackdrop({
+        bgFile = nil,
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 12,
+        insets = {left = 4, right = 4, top = 4, bottom = 4}
+    })
+    questBorder:SetBackdropBorderColor(1.0, 0.82, 0, 1)
+    questBorder:Hide()
+    button.questBorder = questBorder
+
+    -- Quest icon (question mark in corner)
+    local questIcon = CreateFrame("Frame", nil, button)
+    questIcon:SetFrameLevel(button:GetFrameLevel() + 7)
+    questIcon:SetWidth(16)
+    questIcon:SetHeight(16)
+    local iconTex = questIcon:CreateTexture(nil, "OVERLAY")
+    iconTex:SetAllPoints(questIcon)
+    iconTex:SetTexture("Interface\\GossipFrame\\ActiveQuestIcon")
+    iconTex:SetTexCoord(0, 1, 0, 1)
+    questIcon:Hide()
+    button.questIcon = questIcon
+
+    button:RegisterForDrag("LeftButton")
+    button:SetScript("OnDragStart", function() end)
+    button:SetScript("OnReceiveDrag", function() end)
+    -- OnMouseDown handles two intercepts for the secure OnClick:
+    --   * Alt+Left-Click: untrack (must suppress so the item isn't used)
+    --   * Shift+Left-Click: start moving the bar
+    button:SetScript("OnMouseDown", function()
+        if arg1 ~= "LeftButton" then return end
+
+        if IsAltKeyDown() and this.itemID then
+            local trackedIDs = addon.Modules.DB:GetSetting("trackedItems") or {}
+            trackedIDs[this.itemID] = nil
+            addon.Modules.DB:SetSetting("trackedItems", trackedIDs)
+            if Guda.Modules.BagFrame and Guda.Modules.BagFrame.Update then
+                Guda.Modules.BagFrame:Update()
+            end
+            TrackedItemBar:Update()
+            if Guda_SuppressNextClick then
+                Guda_SuppressNextClick(this)
+            end
+            return
+        end
+
+        if IsShiftKeyDown() and not (CursorHasItem and CursorHasItem()) then
+            this:GetParent():StartMoving()
+            this:GetParent().isMoving = true
+        end
+    end)
+    button:SetScript("OnMouseUp", function()
+        if arg1 == "LeftButton" then
+            local p = this:GetParent()
+            if p.isMoving then
+                p:StopMovingOrSizing()
+                p.isMoving = false
+                local point, _, relativePoint, x, y = p:GetPoint()
+                addon.Modules.DB:SetSetting("trackedBarPosition", {point = point, relativePoint = relativePoint, x = x, y = y})
+            end
+        end
+    end)
+
+    button:Hide()
+    return button
+end
+
+-- Pre-warm a reasonable slot count at Initialize (out of combat). If the
+-- player tracks more items than this after combat starts, extras will be
+-- missing until combat ends — but that edge case doesn't break the addon.
+local TRACKED_BAR_PREWARM = 10
+function TrackedItemBar:PreCreateButtons()
+    local frame = Guda_TrackedItemBar
+    if not frame then return end
+    for i = 1, TRACKED_BAR_PREWARM do
+        self:CreateSlotButton(frame, i)
+    end
+end
+
+-- Update the bar buttons.
+-- Every button is a SecureActionButton; in combat, Show/Hide/SetAttribute/
+-- SetPoint on them is forbidden. Skip the whole refresh during combat and
+-- re-run it on PLAYER_REGEN_ENABLED. The bar simply stays in its pre-combat
+-- state until combat ends.
 function TrackedItemBar:Update()
     local frame = Guda_TrackedItemBar
-    
+
     if not frame then return end
+
+    if InCombatLockdown and InCombatLockdown() then
+        -- Flag a deferred refresh; PLAYER_REGEN_ENABLED picks it up.
+        self._deferredUpdate = true
+        return
+    end
+
     frame:Show()
 
     self:ScanForTrackedItems()
@@ -114,82 +227,13 @@ function TrackedItemBar:Update()
     for i, info in ipairs(trackedItemsInfo) do
         local button = buttons[i]
         if not button then
-            -- SecureActionButtonTemplate lets the engine dispatch item-use
-            -- through a secure path (type="item" / "item" attribute). Without
-            -- it, a tainted SetScript("OnClick", ...) calling UseContainerItem
-            -- on a consumable (food, water, potion) triggers the Ascension
-            -- 3.3.5a "GudaBags has been blocked from an action only available
-            -- to the Blizzard UI" popup, same as hearthstone did.
-            button = CreateFrame("Button", "Guda_TrackedItemBarButton" .. i, frame, "Guda_ItemButtonTemplate, SecureActionButtonTemplate")
-            button:SetAttribute("type", "item")
-            table.insert(buttons, button)
-
-            -- Create quest border (golden)
-            local questBorder = CreateFrame("Frame", nil, button)
-            questBorder:SetFrameLevel(button:GetFrameLevel() + 6)
-            questBorder:SetBackdrop({
-                bgFile = nil,
-                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-                edgeSize = 12,
-                insets = {left = 4, right = 4, top = 4, bottom = 4}
-            })
-            questBorder:SetBackdropBorderColor(1.0, 0.82, 0, 1)
-            questBorder:Hide()
-            button.questBorder = questBorder
-
-            -- Create quest icon (question mark in corner)
-            local questIcon = CreateFrame("Frame", nil, button)
-            questIcon:SetFrameLevel(button:GetFrameLevel() + 7)
-            questIcon:SetWidth(16)
-            questIcon:SetHeight(16)
-            local iconTex = questIcon:CreateTexture(nil, "OVERLAY")
-            iconTex:SetAllPoints(questIcon)
-            iconTex:SetTexture("Interface\\GossipFrame\\ActiveQuestIcon")
-            iconTex:SetTexCoord(0, 1, 0, 1)
-            questIcon:Hide()
-            button.questIcon = questIcon
-
-            button:RegisterForDrag("LeftButton")
-            button:SetScript("OnDragStart", function() end)
-            button:SetScript("OnReceiveDrag", function() end)
-            -- OnMouseDown handles two intercepts for the secure OnClick:
-            --   * Alt+Left-Click: untrack (must suppress so the item isn't used)
-            --   * Shift+Left-Click: start moving the bar
-            -- Default left/right-click without modifiers falls through to the
-            -- secure dispatcher (type="item") and uses the item.
-            button:SetScript("OnMouseDown", function()
-                if arg1 ~= "LeftButton" then return end
-
-                if IsAltKeyDown() and this.itemID then
-                    local trackedIDs = addon.Modules.DB:GetSetting("trackedItems") or {}
-                    trackedIDs[this.itemID] = nil
-                    addon.Modules.DB:SetSetting("trackedItems", trackedIDs)
-                    if Guda.Modules.BagFrame and Guda.Modules.BagFrame.Update then
-                        Guda.Modules.BagFrame:Update()
-                    end
-                    TrackedItemBar:Update()
-                    if Guda_SuppressNextClick then
-                        Guda_SuppressNextClick(this)
-                    end
-                    return
-                end
-
-                if IsShiftKeyDown() and not (CursorHasItem and CursorHasItem()) then
-                    this:GetParent():StartMoving()
-                    this:GetParent().isMoving = true
-                end
-            end)
-            button:SetScript("OnMouseUp", function()
-                if arg1 == "LeftButton" then
-                    local parent = this:GetParent()
-                    if parent.isMoving then
-                        parent:StopMovingOrSizing()
-                        parent.isMoving = false
-                        local point, _, relativePoint, x, y = parent:GetPoint()
-                        addon.Modules.DB:SetSetting("trackedBarPosition", {point = point, relativePoint = relativePoint, x = x, y = y})
-                    end
-                end
-            end)
+            -- Fallback: pre-warm didn't cover this slot. Out of combat it
+            -- will succeed; in combat CreateFrame on the secure template is
+            -- blocked, and we break out of the Update loop.
+            button = TrackedItemBar:CreateSlotButton(frame, i)
+        end
+        if not button then
+            break
         end
 
         button.hasItem = true
@@ -410,6 +454,18 @@ function TrackedItemBar:Initialize()
             TrackedItemBar:Update()
         end)
     end, "TrackedItemBar")
+
+    -- Run the deferred refresh skipped during combat.
+    addon.Modules.Events:Register("PLAYER_REGEN_ENABLED", function()
+        if TrackedItemBar._deferredUpdate then
+            TrackedItemBar._deferredUpdate = false
+            TrackedItemBar:Update()
+        end
+    end, "TrackedItemBar")
+
+    -- Rule 3 (RULES.md): pre-create secure slot buttons out of combat so
+    -- Update never has to CreateFrame a secure template under lockdown.
+    TrackedItemBar:PreCreateButtons()
 
     TrackedItemBar:Update()
     addon:Debug("TrackedItemBar initialized")
