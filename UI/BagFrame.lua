@@ -1899,13 +1899,18 @@ end
 -- Hearthstone item ID
 local HEARTHSTONE_ID = 6948
 
--- Create hearthstone display frame
+-- Create hearthstone display frame.
+-- NOTE: The button inherits SecureActionButtonTemplate so the engine can
+-- dispatch the item-use through a secure path. A plain Button + SetScript
+-- OnClick that called UseContainerItem taints the spell-cast chain on
+-- Ascension 3.3.5a and produces "GudaBags has been blocked from an action
+-- only available to the Blizzard UI" when the hearthstone cast starts.
 function BagFrame:CreateHearthstoneFrame()
 	local frameName = "Guda_BagFrame_HearthstoneFrame"
 	if getglobal(frameName) then return end
 
 	local toolbar = getglobal("Guda_BagFrame_Toolbar") or Guda_BagFrame
-	local frame = CreateFrame("Button", frameName, toolbar)
+	local frame = CreateFrame("Button", frameName, toolbar, "SecureActionButtonTemplate")
 	frame:SetWidth(20)
 	frame:SetHeight(20)
 	-- Default anchor; will be repositioned by UpdateBaglineLayout
@@ -1928,23 +1933,20 @@ function BagFrame:CreateHearthstoneFrame()
 	cooldown:EnableMouse(false)
 	frame.cooldown = cooldown
 
-	-- Enable mouse and clicks
+	-- Enable mouse and clicks (the secure template wires OnClick itself)
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+	-- Secure dispatch: engine handles UseContainerItem via type="item".
+	-- The "item" attribute is refreshed in UpdateHearthstone whenever the
+	-- hearthstone moves; it must never be updated mid-combat.
+	frame:SetAttribute("type", "item")
 
 	frame:SetScript("OnEnter", function()
 		BagFrame:ShowHearthstoneTooltip(this)
 	end)
 	frame:SetScript("OnLeave", function()
 		GameTooltip:Hide()
-	end)
-	frame:SetScript("OnClick", function()
-		BagFrame:UseHearthstone()
-	end)
-	frame:SetScript("OnMouseUp", function()
-		if arg1 == "LeftButton" or arg1 == "RightButton" then
-			BagFrame:UseHearthstone()
-		end
 	end)
 
 	addon:Debug("HearthstoneFrame created")
@@ -1986,6 +1988,10 @@ function BagFrame:UpdateHearthstone()
 
 	local bag, slot, link = self:FindHearthstone()
 
+	-- Secure attribute mutation is forbidden during combat; skip and let the
+	-- previous value ride (the hearthstone location rarely moves mid-fight).
+	local canUpdateAttr = not (InCombatLockdown and InCombatLockdown())
+
 	if bag then
 		frame:SetAlpha(1)
 		frame:Show()
@@ -1998,10 +2004,15 @@ function BagFrame:UpdateHearthstone()
 			frame.cooldown:Hide()
 		end
 
-		-- Store location for use
+		-- Store location for tooltip display
 		frame.bag = bag
 		frame.slot = slot
 		frame.link = link
+
+		-- Point the secure dispatcher at the current hearthstone link.
+		if canUpdateAttr then
+			frame:SetAttribute("item", link)
+		end
 	else
 		frame:SetAlpha(0.3)
 		frame:Show()
@@ -2010,6 +2021,9 @@ function BagFrame:UpdateHearthstone()
 		frame.link = nil
 		if frame.cooldown then
 			frame.cooldown:Hide()
+		end
+		if canUpdateAttr then
+			frame:SetAttribute("item", nil)
 		end
 	end
 end
@@ -2026,14 +2040,6 @@ function BagFrame:ShowHearthstoneTooltip(frame)
 		GameTooltip:AddLine("Hearthstone", 1, 1, 1)
 		GameTooltip:AddLine("Not in bags", 1, 0, 0)
 		GameTooltip:Show()
-	end
-end
-
--- Use hearthstone
-function BagFrame:UseHearthstone()
-	local frame = getglobal("Guda_BagFrame_HearthstoneFrame")
-	if frame and frame.bag and frame.slot then
-		UseContainerItem(frame.bag, frame.slot)
 	end
 end
 
