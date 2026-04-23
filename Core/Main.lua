@@ -36,9 +36,16 @@ function Main:Initialize()
         addon.Modules.MoneyTracker:Initialize()
 		addon.Modules.EquipmentScanner:Initialize()
 
-        -- Initialize equipment sets (Outfitter/ItemRack integration)
+        -- Initialize equipment sets (Outfitter/ItemRack integration).
+        -- Wrapped in pcall: Outfitter's globals can exist before its own data
+        -- is ready, and any error in ScanOutfitter here would otherwise halt
+        -- the rest of init (BagFrame hooks and all) and leave the user on the
+        -- default Blizzard bag UI.
         if addon.Modules.EquipmentSets then
-            addon.Modules.EquipmentSets:Initialize()
+            local ok, err = pcall(function() addon.Modules.EquipmentSets:Initialize() end)
+            if not ok then
+                addon:Error("Failed to initialize EquipmentSets: %s", tostring(err))
+            end
         end
 
         -- Initialize UI

@@ -7,10 +7,11 @@
         -- Use safe global wrapper that defers until addon is ready
         Guda_ToggleBank()
     </Binding>
+    <!-- The actual action is wired via SetBindingClick at runtime so the key
+         press triggers a secure click on the quest-bar button (type="item")
+         rather than a tainted Lua UseContainerItem call. -->
     <Binding name="GUDA_USE_QUEST_ITEM_1" header="GUDA">
-        Guda_UseQuestItem1()
     </Binding>
     <Binding name="GUDA_USE_QUEST_ITEM_2" header="GUDA">
-        Guda_UseQuestItem2()
     </Binding>
 </Bindings>

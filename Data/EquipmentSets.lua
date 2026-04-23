@@ -80,48 +80,62 @@ local kIgnoredOutfitterCategories = {
     Special = true,
 }
 
+-- Outfitter's globals can exist before its own internal tables are ready,
+-- and API shapes differ between ports. Every call into Outfitter goes through
+-- pcall so a partially-loaded or differently-versioned Outfitter downgrades
+-- the scan to a no-op instead of aborting the whole addon's init chain.
 local function ScanOutfitter()
     -- Check if Outfitter is loaded and initialized
     if not Outfitter_GetCategoryOrder then return false end
 
     addon:Debug("EquipmentSets: Scanning Outfitter outfits...")
 
-    local categoryOrder = Outfitter_GetCategoryOrder()
+    local ok, categoryOrder = pcall(Outfitter_GetCategoryOrder)
+    if not ok then
+        addon:Debug("EquipmentSets: Outfitter_GetCategoryOrder errored (%s); skipping Outfitter scan", tostring(categoryOrder))
+        return false
+    end
     if not categoryOrder then return false end
 
     local scannedSets = 0
-    for _, catID in ipairs(categoryOrder) do
-        if not kIgnoredOutfitterCategories[catID] then
-            local outfits = nil
-            if Outfitter_GetOutfitsByCategoryID then
-                outfits = Outfitter_GetOutfitsByCategoryID(catID)
-            end
-            if outfits then
-                for _, outfit in ipairs(outfits) do
-                    local setName = outfit.Name
-                    if setName and outfit.Items then
-                        local itemIDs = {}
-                        for slotName, item in pairs(outfit.Items) do
-                            if item then
-                                local itemID = nil
-                                -- Outfitter stores item codes
-                                if item.Code then
-                                    itemID = tonumber(item.Code)
-                                elseif item.ItemID then
-                                    itemID = tonumber(item.ItemID)
-                                end
-                                if itemID and itemID > 0 then
-                                    itemIDs[itemID] = true
+    local scanOk, scanErr = pcall(function()
+        for _, catID in ipairs(categoryOrder) do
+            if not kIgnoredOutfitterCategories[catID] then
+                local outfits = nil
+                if Outfitter_GetOutfitsByCategoryID then
+                    local gotOk, gotOutfits = pcall(Outfitter_GetOutfitsByCategoryID, catID)
+                    if gotOk then outfits = gotOutfits end
+                end
+                if outfits then
+                    for _, outfit in ipairs(outfits) do
+                        local setName = outfit.Name
+                        if setName and outfit.Items then
+                            local itemIDs = {}
+                            for slotName, item in pairs(outfit.Items) do
+                                if item then
+                                    local itemID = nil
+                                    -- Outfitter stores item codes
+                                    if item.Code then
+                                        itemID = tonumber(item.Code)
+                                    elseif item.ItemID then
+                                        itemID = tonumber(item.ItemID)
+                                    end
+                                    if itemID and itemID > 0 then
+                                        itemIDs[itemID] = true
+                                    end
                                 end
                             end
-                        end
 
-                        setData[setName] = { itemIDs = itemIDs, source = "Outfitter" }
-                        scannedSets = scannedSets + 1
+                            setData[setName] = { itemIDs = itemIDs, source = "Outfitter" }
+                            scannedSets = scannedSets + 1
+                        end
                     end
                 end
             end
         end
+    end)
+    if not scanOk then
+        addon:Debug("EquipmentSets: Outfitter scan errored (%s); partial results kept", tostring(scanErr))
     end
 
     addon:Debug("EquipmentSets: Scanned %d Outfitter outfits", scannedSets)

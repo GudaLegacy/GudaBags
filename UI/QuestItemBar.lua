@@ -188,14 +188,40 @@ function QuestItemBar:Update()
         local index = i
         local button = buttons[i]
         if not button then
-            button = CreateFrame("Button", "Guda_QuestItemBarButton" .. i, frame, "Guda_ItemButtonTemplate")
+            -- SecureActionButtonTemplate lets the engine dispatch item-use
+            -- through a secure path (type="item" / "item" attribute). Without
+            -- it, a tainted SetScript("OnClick", ...) calling UseContainerItem
+            -- on a consumable quest item triggers the Ascension 3.3.5a
+            -- "GudaBags has been blocked from an action only available to the
+            -- Blizzard UI" popup.
+            button = CreateFrame("Button", "Guda_QuestItemBarButton" .. i, frame, "Guda_ItemButtonTemplate, SecureActionButtonTemplate")
+            button:SetAttribute("type", "item")
             table.insert(buttons, button)
-            
+
             -- Set up the button once
             button:RegisterForDrag("LeftButton")
             button:SetScript("OnDragStart", function() end)
             button:SetScript("OnReceiveDrag", function() end)
+            -- OnMouseDown handles two intercepts before the secure OnClick:
+            --   * Alt+Right-Click: unpin this slot (must suppress so the secure
+            --     dispatcher doesn't ALSO use the item on the now-unpinned slot)
+            --   * Shift+Left-Click: start moving the bar
+            -- Default left/right-click without modifiers falls through to the
+            -- secure dispatcher (type="item") and uses the item.
             button:SetScript("OnMouseDown", function()
+                if arg1 == "RightButton" and IsAltKeyDown() then
+                    local slot = this.slotIndex
+                    if slot then
+                        local pins = addon.Modules.DB:GetSetting("questBarPinnedItems") or {}
+                        pins[slot] = nil
+                        addon.Modules.DB:SetSetting("questBarPinnedItems", pins)
+                        QuestItemBar:Update()
+                    end
+                    if Guda_SuppressNextClick then
+                        Guda_SuppressNextClick(this)
+                    end
+                    return
+                end
                 if arg1 == "LeftButton" then
                     local parent = this:GetParent()
                     if parent and IsShiftKeyDown() and not parent.isMoving and not (CursorHasItem and CursorHasItem()) then
@@ -218,6 +244,11 @@ function QuestItemBar:Update()
                 end
             end)
         end
+
+        -- Track which slot this button represents so the OnMouseDown closure
+        -- can unpin the correct index regardless of which button was originally
+        -- created for which slot.
+        button.slotIndex = i
 
         local itemToDisplay = nil
         
@@ -270,39 +301,14 @@ function QuestItemBar:Update()
                 countText:Hide()
             end
             
-            button:SetScript("OnClick", function()
-                if this.fromDB then
-                    addon:Print(Guda_L["Item is not currently in your bags (loading from database)."])
-                    return
-                end
-                
-                if arg1 == "LeftButton" then
-                    if CursorHasItem() then
-                        -- Try to pin item on cursor
-                        local tooltip = addon.Modules.Utils:GetScanTooltip()
-                        tooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
-                        tooltip:SetCursorItem()
-                        local link = nil
-                        -- In 1.12, getting link from cursor is hard.
-                        -- We'll rely on Alt-Click from bags for pinning.
-                    end
+            -- Point the secure dispatcher at this quest item's link so clicks
+            -- use THIS specific stack. Attribute mutation is forbidden during
+            -- combat; skip the update and let the previous value ride. Alt+
+            -- Right unpin is handled in OnMouseDown above with suppression.
+            if link and not (InCombatLockdown and InCombatLockdown()) then
+                button:SetAttribute("item", link)
+            end
 
-                    if not IsShiftKeyDown() then
-                        UseContainerItem(this.bagID, this.slotID)
-                    end
-                elseif arg1 == "RightButton" then
-                    if IsAltKeyDown() then
-                        -- Clear pin for this slot
-                        local pins = addon.Modules.DB:GetSetting("questBarPinnedItems") or {}
-                        pins[index] = nil
-                        addon.Modules.DB:SetSetting("questBarPinnedItems", pins)
-                        QuestItemBar:Update()
-                    elseif not IsShiftKeyDown() then
-                        UseContainerItem(this.bagID, this.slotID)
-                    end
-                end
-            end)
-            
             ShowQuestBorder(button)
             button:Show()
         else
@@ -327,23 +333,14 @@ function QuestItemBar:Update()
             
             local countText = getglobal(button:GetName() .. "Count")
             countText:Hide()
-            
-            button:SetScript("OnClick", function()
-                if arg1 == "LeftButton" then
-                    if CursorHasItem() then
-                        -- Pinning from cursor is hard in 1.12 without hooks.
-                    end
-                elseif arg1 == "RightButton" then
-                    if IsAltKeyDown() then
-                        -- Clear pin for this slot
-                        local pins = addon.Modules.DB:GetSetting("questBarPinnedItems") or {}
-                        pins[index] = nil
-                        addon.Modules.DB:SetSetting("questBarPinnedItems", pins)
-                        QuestItemBar:Update()
-                    end
-                end
-            end)
-            
+
+            -- Empty slot: clear the secure "item" attribute so any click
+            -- (including keybind) becomes a no-op via the secure dispatcher.
+            -- Alt+Right unpin is handled in OnMouseDown for this case too.
+            if not (InCombatLockdown and InCombatLockdown()) then
+                button:SetAttribute("item", nil)
+            end
+
             button:Show()
         end
 
@@ -445,6 +442,9 @@ function QuestItemBar:Update()
     -- Fixed width for current number of slots
     local newWidth = xOffset * 2 + slots * (buttonSize + spacing) - spacing
     frame:SetWidth(newWidth)
+
+    -- (Re)wire the key bindings to the secure buttons now that they exist.
+    self:WireKeybindings()
 end
 
 function QuestItemBar:UpdateCooldowns()
@@ -692,18 +692,20 @@ function QuestItemBar:UpdateFlyout(parent)
     flyoutFrame:SetHeight(table.getn(displayItems) * (buttonSize + spacing) + 10)
 end
 
--- Global wrappers for keybindings
-function Guda_UseQuestItem1()
-    local button = getglobal("Guda_QuestItemBarButton1")
-    if button and button:IsShown() and button.hasItem and button.bagID and button.slotID then
-        UseContainerItem(button.bagID, button.slotID)
-    end
-end
+-- Wire the GUDA_USE_QUEST_ITEM_{1,2} bindings to simulate a hardware click on
+-- the corresponding secure quest-bar button. Pressing the key dispatches
+-- through the secure type="item" path — no addon-taint, no blocked-action
+-- popup on consumable quest items. SetBindingClick is forbidden during
+-- combat, so skip and try again on the next out-of-combat Update.
+function QuestItemBar:WireKeybindings()
+    if not SetBindingClick then return end
+    if InCombatLockdown and InCombatLockdown() then return end
 
-function Guda_UseQuestItem2()
-    local button = getglobal("Guda_QuestItemBarButton2")
-    if button and button:IsShown() and button.hasItem and button.bagID and button.slotID then
-        UseContainerItem(button.bagID, button.slotID)
+    if getglobal("Guda_QuestItemBarButton1") then
+        SetBindingClick("GUDA_USE_QUEST_ITEM_1", "Guda_QuestItemBarButton1", "LeftButton")
+    end
+    if getglobal("Guda_QuestItemBarButton2") then
+        SetBindingClick("GUDA_USE_QUEST_ITEM_2", "Guda_QuestItemBarButton2", "LeftButton")
     end
 end
 
