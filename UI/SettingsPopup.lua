@@ -2555,20 +2555,16 @@ function Guda_CategoryEditor_Open(categoryId)
         end
     end
 
-    -- Set group EditBox
+    -- Set group EditBox — editable for all categories, including built-ins,
+    -- so users can move e.g. "Weapon" out of Main into a custom group. The save
+    -- path (CategoryManager:SetCategoryGroup) already handles reordering and
+    -- persistence uniformly for both built-in and user-added categories.
     local groupBox = getglobal("Guda_CategoryEditor_GroupEditBox")
     if groupBox then
         groupBox:SetText(editorGroup or "")
-        -- Disable group editing for built-in categories
-        if categoryDef.isBuiltIn then
-            groupBox:EnableMouse(false)
-            groupBox:EnableKeyboard(false)
-            groupBox:SetTextColor(0.5, 0.5, 0.5)
-        else
-            groupBox:EnableMouse(true)
-            groupBox:EnableKeyboard(true)
-            groupBox:SetTextColor(1, 1, 1)
-        end
+        groupBox:EnableMouse(true)
+        groupBox:EnableKeyboard(true)
+        groupBox:SetTextColor(1, 1, 1)
         groupBox:ClearFocus()
     end
 
