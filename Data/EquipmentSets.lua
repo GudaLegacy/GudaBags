@@ -13,6 +13,10 @@ local itemToSets = {}    -- { [itemID] => { setName1 = true, setName2 = true } }
 local initialized = false
 local outfitterReady = false
 local itemRackReady = false
+-- Content signature of the most recent FullScan, used to skip no-op refreshes
+-- during the login polling loop. Declared at module scope so event callbacks
+-- defined earlier in the file (HookOutfitterEvents) can invalidate it.
+local lastScanSignature = nil
 
 -------------------------------------------
 -- Public API
@@ -145,18 +149,26 @@ end
 local function HookOutfitterEvents()
     if not Outfitter_RegisterOutfitEvent then return end
 
-    local events = { "ADD", "DELETE", "EDIT", "RENAME" }
+    -- Outfitter has two generations of event names: the short form used by
+    -- early releases ("EDIT") and the _OUTFIT suffixed form used by current
+    -- builds including Ascension's ("EDIT_OUTFIT"). Registering for both is
+    -- idempotent — whichever the installed Outfitter actually dispatches
+    -- wakes our callback; the unused one is harmless.
+    local events = {
+        "ADD",  "DELETE",        "EDIT",         "RENAME",
+        "ADD_OUTFIT", "DELETE_OUTFIT", "EDIT_OUTFIT", "DID_RENAME_OUTFIT",
+    }
     for _, eventName in ipairs(events) do
         local success, err = pcall(function()
             Outfitter_RegisterOutfitEvent(eventName, function()
-                -- Rescan after a brief delay to let Outfitter finish its update
                 addon:Debug("EquipmentSets: Outfitter event '%s', rescanning...", eventName)
-                ScanOutfitter()
-                RebuildItemIndex()
-                -- Sync categories
-                if addon.Modules.CategoryManager then
-                    addon.Modules.CategoryManager:SyncEquipmentSetCategories()
-                end
+                -- Force FullScan to treat this scan as changed even if the
+                -- content signature happens to match what we saw last time
+                -- (e.g. if Outfitter fired the event before fully mutating
+                -- its outfit table). The signature check exists to suppress
+                -- polling-loop thrash, not to swallow explicit user edits.
+                lastScanSignature = nil
+                if EquipmentSets.Rescan then EquipmentSets:Rescan() end
             end)
         end)
         if not success then
@@ -264,6 +276,47 @@ end
 -- Full Scan (all sources)
 -------------------------------------------
 
+local function CountSets()
+    local n = 0
+    for _ in pairs(setData) do n = n + 1 end
+    return n
+end
+
+-- Content-signature of setData so we can detect real changes (set added/removed
+-- OR item added/removed within a set) without relying on count alone. Cheap for
+-- realistic input (a few sets × a handful of items each).
+local function ComputeSetSignature()
+    local names = {}
+    for name in pairs(setData) do
+        table.insert(names, name)
+    end
+    table.sort(names)
+
+    local parts = {}
+    for _, name in ipairs(names) do
+        table.insert(parts, name)
+        local ids = {}
+        local info = setData[name]
+        if info and info.itemIDs then
+            for id in pairs(info.itemIDs) do
+                table.insert(ids, id)
+            end
+        end
+        table.sort(ids)
+        for _, id in ipairs(ids) do
+            table.insert(parts, tostring(id))
+        end
+        table.insert(parts, "#")
+    end
+    return table.concat(parts, "|")
+end
+
+-- Returns the number of sets discovered. When the scan's signature differs
+-- from the previous one (sets or items changed), also syncs EquipSet
+-- categories and repaints any open bag/bank so lock icons / category marks
+-- stay in sync without user interaction. Same-signature scans are cheap
+-- no-ops — important because the polling frame can call us up to 30 times
+-- during login before Outfitter finishes populating its outfit list.
 local function FullScan()
     setData = {}
 
@@ -272,14 +325,38 @@ local function FullScan()
 
     RebuildItemIndex()
 
-    -- Sync equipment set categories
-    if addon.Modules.CategoryManager then
-        addon.Modules.CategoryManager:SyncEquipmentSetCategories()
+    local signature = ComputeSetSignature()
+    local changed = (signature ~= lastScanSignature)
+    lastScanSignature = signature
+
+    if changed then
+        -- Rebuild EquipSet:* category definitions (this also clears
+        -- CategoryManager's result cache via SaveCategories → ClearCache).
+        if addon.Modules.CategoryManager then
+            addon.Modules.CategoryManager:SyncEquipmentSetCategories()
+        end
+
+        -- Repaint any open bag/bank so IsItemProtected and categoryMark pick
+        -- up the fresh itemToSets. Safe during combat: both frames are
+        -- already shown, so Update is a plain repaint — no protected-frame
+        -- creation.
+        if Guda_BagFrame and Guda_BagFrame.IsShown and Guda_BagFrame:IsShown()
+           and addon.Modules.BagFrame and addon.Modules.BagFrame.Update then
+            pcall(function() addon.Modules.BagFrame:Update() end)
+        end
+        if Guda_BankFrame and Guda_BankFrame.IsShown and Guda_BankFrame:IsShown()
+           and addon.Modules.BankFrame and addon.Modules.BankFrame.Update then
+            pcall(function() addon.Modules.BankFrame:Update() end)
+        end
     end
 
+    local setCount = CountSets()
     if hasOutfitter or hasItemRack then
-        addon:Debug("EquipmentSets: Full scan complete, %d total sets", table.getn(EquipmentSets:GetAllSetNames()))
+        addon:Debug("EquipmentSets: Full scan complete, %d total sets (changed=%s)",
+            setCount, tostring(changed))
     end
+
+    return setCount
 end
 
 -------------------------------------------
@@ -319,8 +396,35 @@ function EquipmentSets:Initialize()
         end
     end, "EquipmentSets")
 
-    -- Hook Outfitter's INIT event if available (fires after Outfitter finishes setup)
-    -- This uses a frame to check periodically since OUTFITTER_INIT is a custom event
+    -- Fallback: on the first gear change after login, if our set data is still
+    -- empty but Outfitter / ItemRack is loaded, rescan. Outfitter's own
+    -- auto-add-on-swap mutates its outfit list, which normally fires an EDIT
+    -- event back to us — but if that event chain misses (e.g. hook not yet
+    -- registered the moment Outfitter broadcasts), this gives us a second
+    -- chance on the next vanilla PLAYER_EQUIPMENT_CHANGED. Throttled to only
+    -- run while data is empty, so it's a no-op during normal play.
+    addon.Modules.Events:Register("PLAYER_EQUIPMENT_CHANGED", function()
+        if CountSets() > 0 then return end
+        if not (outfitterReady or itemRackReady
+                or Outfitter_GetCategoryOrder or gOutfitter_Initialized
+                or IsItemRackLoaded()) then
+            return
+        end
+        if Outfitter_GetCategoryOrder or gOutfitter_Initialized then
+            outfitterReady = true
+            HookOutfitterEvents()
+        end
+        if IsItemRackLoaded() then
+            itemRackReady = true
+        end
+        FullScan()
+    end, "EquipmentSets")
+
+    -- Polling frame: keep retrying FullScan until it produces set data (not just
+    -- until Outfitter globals exist — Outfitter defines its globals the moment
+    -- its Lua loads, but its outfit list isn't populated until later in the load
+    -- sequence, so the first scan after a /reload often finds zero sets). Up to
+    -- 30 ticks (1s each); stop on first non-empty scan or timeout.
     local initCheckFrame = CreateFrame("Frame")
     initCheckFrame.elapsed = 0
     initCheckFrame.checks = 0
@@ -330,19 +434,30 @@ function EquipmentSets:Initialize()
         this.elapsed = 0
         this.checks = this.checks + 1
 
-        -- Check if Outfitter became available
+        -- Hook Outfitter events the moment globals appear, even if the scan
+        -- below is empty — that way Outfitter's own post-load EDIT events
+        -- still wake us up once its outfit list actually populates.
         if not outfitterReady and (gOutfitter_Initialized or Outfitter_GetCategoryOrder) then
             outfitterReady = true
             HookOutfitterEvents()
-            FullScan()
-            this:Hide()
-            return
+        end
+        if not itemRackReady and IsItemRackLoaded() then
+            itemRackReady = true
         end
 
-        -- Stop checking after 30 seconds
+        -- Retry the scan each tick until we produce at least one set, or time out.
+        if outfitterReady or itemRackReady then
+            local count = FullScan()
+            if count > 0 then
+                this:Hide()
+                return
+            end
+        end
+
+        -- Give up after 30 seconds. One final scan in case any late-loading
+        -- addon registered its data without firing an event we catch.
         if this.checks > 30 then
             this:Hide()
-            -- Do a final scan anyway in case addons loaded without events
             if Outfitter_GetCategoryOrder or IsItemRackLoaded() then
                 FullScan()
             end

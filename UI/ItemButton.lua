@@ -796,13 +796,95 @@ local function HidePinIcon(button)
 	end
 end
 
+-- Merchant sell-protection overlay.
+-- A plain Button stacked on top of each bag item button with a higher
+-- FrameLevel, so it catches right-clicks before the underlying item
+-- button's OnClick can dispatch `UseContainerItem` (which auto-sells at a
+-- merchant). The older RegisterForClicks-unregister trick in OnMouseDown
+-- couldn't dequeue a click once the engine had committed it; this overlay
+-- approach (ported from the Anniversary GudaBags) is the proven pattern.
+-- Only active while `MerchantFrame:IsVisible()` AND the item is protected
+-- by `DB:IsItemProtected` (user lock OR equipment-set membership). Hidden
+-- in all other contexts so normal right-click item-use still works.
+local function EnsureMerchantOverlay(button)
+    if not button then return nil end
+    if button.merchantOverlay then return button.merchantOverlay end
+    local overlay = CreateFrame("Button", nil, button)
+    overlay:SetAllPoints(button)
+    overlay:SetFrameLevel(button:GetFrameLevel() + 20)
+    overlay:RegisterForClicks("RightButtonUp")
+    overlay:SetScript("OnClick", function()
+        local parent = this and this.GetParent and this:GetParent()
+        if not parent then return end
+        local link = parent.itemData and parent.itemData.link
+        if not link and parent.bagID and parent.slotID then
+            link = GetContainerItemLink(parent.bagID, parent.slotID)
+        end
+        if link then
+            addon:Print(format(Guda_L["Cannot sell %s — item is protected"], link))
+        end
+    end)
+    -- Forward hover to the underlying item button so the tooltip, bag-slot
+    -- highlight, category drop indicator, and cursor-over-slot visuals still
+    -- work while the overlay is on top of the button.
+    overlay:SetScript("OnEnter", function()
+        local parent = this and this.GetParent and this:GetParent()
+        if parent and Guda_ItemButton_OnEnter then
+            Guda_ItemButton_OnEnter(parent)
+        end
+    end)
+    overlay:SetScript("OnLeave", function()
+        local parent = this and this.GetParent and this:GetParent()
+        if parent and Guda_ItemButton_OnLeave then
+            Guda_ItemButton_OnLeave(parent)
+        end
+    end)
+    overlay:Hide()
+    button.merchantOverlay = overlay
+    return overlay
+end
+
+local function UpdateMerchantOverlay(button)
+    if not button then return end
+    local merchantVisible = MerchantFrame and MerchantFrame.IsVisible and MerchantFrame:IsVisible()
+    if not merchantVisible then
+        if button.merchantOverlay then button.merchantOverlay:Hide() end
+        return
+    end
+    -- Skip synthetic / read-only buttons — they never map to a live sellable slot.
+    if button.isDropTarget or button.otherChar or button.isReadOnly or button.isMail then
+        if button.merchantOverlay then button.merchantOverlay:Hide() end
+        return
+    end
+    local protected = false
+    if button.hasItem and button.itemData and button.itemData.link
+       and addon.Modules.Utils and addon.Modules.DB then
+        local itemID = addon.Modules.Utils:ExtractItemID(button.itemData.link)
+        if itemID and addon.Modules.DB:IsItemProtected(itemID) then
+            protected = true
+        end
+    end
+    if protected then
+        local overlay = EnsureMerchantOverlay(button)
+        if overlay then overlay:Show() end
+    elseif button.merchantOverlay then
+        button.merchantOverlay:Hide()
+    end
+end
+
+local function UpdateAllMerchantOverlays()
+    for _, button in pairs(buttonPool) do
+        UpdateMerchantOverlay(button)
+    end
+end
+
 -- Delete-popup protection for locked items.
 -- NOTE: On 3.3.5a, replacing UseContainerItem / PickupContainerItem globally
 -- taints every caller (including Blizzard's secure bag frames) and causes
 -- "GudaBags has been blocked from an action only available to the Blizzard UI"
 -- when clicking items that trigger spell casts (hearthstone, food/drink).
--- Merchant-sell and spell-target protection are now handled inline in our
--- own OnClick (see the Ctrl+Right-Click / SpellIsTargeting blocks below).
+-- Merchant-sell protection uses the overlay frame above; spell-target
+-- (disenchant/mill/prospect) protection is inline in OnMouseDown below.
 local function HookDeletePopup(dialogName)
 	if not StaticPopupDialogs or not StaticPopupDialogs[dialogName] then return end
 	local originalOnShow = StaticPopupDialogs[dialogName].OnShow
@@ -1181,20 +1263,6 @@ local function CheckDisenchantBlock(btn)
     return false
 end
 
-local function CheckMerchantSellBlock(btn, mouseButton)
-    if mouseButton ~= "RightButton" then return false end
-    if not (MerchantFrame and MerchantFrame:IsVisible()) then return false end
-    if not (btn.hasItem and btn.bagID and btn.slotID) then return false end
-    local link = GetContainerItemLink(btn.bagID, btn.slotID)
-    if not (link and addon.Modules.Utils and addon.Modules.DB) then return false end
-    local itemID = addon.Modules.Utils:ExtractItemID(link)
-    if itemID and addon.Modules.DB:IsItemProtected(itemID) then
-        addon:Print(format(Guda_L["Cannot sell %s — item is protected"], link))
-        return true
-    end
-    return false
-end
-
 -- Unregister the button's clicks so the pending OnClick does NOT fire for
 -- this mouse release, then re-register next frame. Used to "cancel" a
 -- specific click without SetScript("OnClick"), which would taint the
@@ -1399,11 +1467,14 @@ function Guda_ItemButton_OnLoad(self)
         elseif CheckDisenchantBlock(this) then
             -- Disenchant / mill / prospect target on a protected item.
             shouldSuppress = true
-
-        elseif CheckMerchantSellBlock(this, arg1) then
-            -- Right-click at a merchant sells the item; block protected ones.
-            shouldSuppress = true
         end
+
+        -- Merchant-sell blocking is NOT handled here: RegisterForClicks
+        -- unregistration in OnMouseDown can't dequeue an in-flight right-
+        -- click fast enough, so the sell still goes through. The protection
+        -- instead lives on a per-button overlay frame (EnsureMerchantOverlay
+        -- / UpdateMerchantOverlay above) that sits on top of the button
+        -- while a merchant window is open.
 
         if shouldSuppress then
             Guda_SuppressNextClick(this)
@@ -2470,6 +2541,11 @@ function Guda_ItemButton_SetItem(self, bagID, slotID, itemData, isBank, otherCha
             iconTexture:Hide()
         end
     end
+
+    -- Merchant-sell protection overlay: keeps itself in sync with the
+    -- button's current item + protection status. Cheap when no merchant
+    -- is open (fast-path early-return inside).
+    UpdateMerchantOverlay(self)
 end
 
 -- OnEnter handler (show tooltip)
@@ -2771,4 +2847,15 @@ shiftWatcher:SetScript("OnEvent", function()
     if not owner or not owner.hasItem then return end
     if not GameTooltip:IsShown() then return end
     Guda_ItemButton_OnEnter(owner)
+end)
+
+-- Toggle every bag item's merchant-protection overlay on vendor open/close.
+-- SetItem already maintains per-button overlay state during bag repaints; this
+-- handler covers the case where the merchant opens without a BagFrame:Update
+-- firing in between, and hides all overlays when the merchant closes.
+local merchantWatcher = CreateFrame("Frame")
+merchantWatcher:RegisterEvent("MERCHANT_SHOW")
+merchantWatcher:RegisterEvent("MERCHANT_CLOSED")
+merchantWatcher:SetScript("OnEvent", function()
+    UpdateAllMerchantOverlays()
 end)
