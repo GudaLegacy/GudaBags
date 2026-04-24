@@ -216,6 +216,24 @@ end
 local function DetectJunk(lines, itemData)
     if not itemData then return false end
 
+    -- User override: if the player has explicitly assigned this item to the
+    -- Junk category via the category editor, treat it as junk regardless of
+    -- quality/tooltip. Read cats.itemOverrides directly — do NOT call
+    -- CategoryManager:CategorizeItem, which would re-enter the isJunk rule
+    -- via EvaluateCategoryRules and recurse infinitely.
+    if itemData.link
+       and addon and addon.Modules
+       and addon.Modules.Utils and addon.Modules.Utils.ExtractItemID
+       and addon.Modules.CategoryManager and addon.Modules.CategoryManager.GetCategories then
+        local itemID = addon.Modules.Utils:ExtractItemID(itemData.link)
+        if itemID then
+            local cats = addon.Modules.CategoryManager:GetCategories()
+            if cats and cats.itemOverrides and cats.itemOverrides[itemID] == "Junk" then
+                return true
+            end
+        end
+    end
+
     -- Ensure quality is a number
     local quality = tonumber(itemData.quality)
     local itemClass = itemData.class or ""

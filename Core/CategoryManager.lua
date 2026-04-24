@@ -1304,6 +1304,11 @@ function CategoryManager:AssignItemToCategory(itemID, categoryId)
     cats.itemOverrides[itemID] = categoryId
     self:SaveCategories(cats)
     self:ClearCache()
+    -- Drop ItemDetection's isJunk cache too: when a user moves an item into
+    -- (or between) categories, the override can flip DetectJunk's answer.
+    if addon.Modules.ItemDetection and addon.Modules.ItemDetection.ClearCache then
+        addon.Modules.ItemDetection:ClearCache()
+    end
     return true
 end
 
@@ -1317,6 +1322,9 @@ function CategoryManager:RemoveItemFromCategory(itemID, categoryId)
         cats.itemOverrides[itemID] = nil
         self:SaveCategories(cats)
         self:ClearCache()
+        if addon.Modules.ItemDetection and addon.Modules.ItemDetection.ClearCache then
+            addon.Modules.ItemDetection:ClearCache()
+        end
         return true
     end
     return false
