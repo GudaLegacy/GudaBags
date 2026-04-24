@@ -4678,27 +4678,36 @@ function BagFrame:Initialize()
 			end
 		end
 
-		-- Auto-sell junk items (spread across frames to avoid item locking)
+		-- Auto-sell items that resolve to the Junk category (respects the
+		-- isJunk rule, whiteItemsJunk setting, and user-added itemOverrides
+		-- from the category editor). Spread across frames to avoid Blizzard
+		-- item-lock races from rapid UseContainerItem calls.
 		local autoVendor = addon.Modules.DB:GetSetting("autoVendorJunk")
 		if autoVendor == nil then autoVendor = true end
 		if autoVendor then
-			local junkItems = {}
 			local DB = addon.Modules.DB
 			local Utils = addon.Modules.Utils
-			for bag = 0, 4 do
-				local numSlots = GetContainerNumSlots(bag)
-				for slot = 1, numSlots do
-					local link = GetContainerItemLink(bag, slot)
-					if link and string.find(link, "|cff9d9d9d") then
-						local skip = false
-						if DB and Utils then
-							local itemID = Utils:ExtractItemID(link)
-							if itemID and DB:IsItemProtected(itemID) then
-								skip = true
+			local BagScanner = addon.Modules.BagScanner
+			local CategoryManager = addon.Modules.CategoryManager
+
+			local junkItems = {}
+			if DB and Utils and BagScanner and CategoryManager
+			   and BagScanner.GetBagData and CategoryManager.CategorizeItem then
+				local bagData = BagScanner:GetBagData()
+				for bag = 0, 4 do
+					local bagInfo = bagData and bagData[bag]
+					local slots = bagInfo and bagInfo.slots
+					if slots then
+						for slot, itemData in pairs(slots) do
+							if itemData and itemData.link then
+								local itemID = Utils:ExtractItemID(itemData.link)
+								if itemID and not DB:IsItemProtected(itemID) then
+									local cat = CategoryManager:CategorizeItem(itemData, bag, slot, false)
+									if cat == "Junk" then
+										table.insert(junkItems, { bag = bag, slot = slot })
+									end
+								end
 							end
-						end
-						if not skip then
-							table.insert(junkItems, { bag = bag, slot = slot })
 						end
 					end
 				end
@@ -4718,10 +4727,20 @@ function BagFrame:Initialize()
 					idx = idx + 1
 					local item = junkItems[idx]
 					if item then
+						-- Re-verify before selling: slot contents may have
+						-- changed (we just sold a stack), item may have been
+						-- locked, an itemOverride edited, etc. CategorizeItem
+						-- is result-cached so the lookup is ~free.
 						local link = GetContainerItemLink(item.bag, item.slot)
-						if link and string.find(link, "|cff9d9d9d") then
-							UseContainerItem(item.bag, item.slot)
-							soldCount = soldCount + 1
+						if link and Utils and DB and CategoryManager then
+							local itemID = Utils:ExtractItemID(link)
+							if itemID and not DB:IsItemProtected(itemID) then
+								local cat = CategoryManager:CategorizeItem({ link = link }, item.bag, item.slot, false)
+								if cat == "Junk" then
+									UseContainerItem(item.bag, item.slot)
+									soldCount = soldCount + 1
+								end
+							end
 						end
 					else
 						this:SetScript("OnUpdate", nil)
