@@ -2527,6 +2527,11 @@ function Guda_ItemButton_OnEnter(self)
 		return
 	end
 
+	-- Track the hovered Guda button so the shift watcher can re-fire OnEnter
+	-- when modifier state changes. GetOwner() returns UIParent because we
+	-- SetOwner(UIParent, ANCHOR_NONE) + SetPoint below.
+	GameTooltip.gudaOwner = self
+
 	-- Check if pfUI cursor tooltip mode is active
 	local pfuiCursorMode = false
 	if pfUI and pfUI.env and pfUI.env.C and pfUI.env.C.tooltip and pfUI.env.C.tooltip.position == "cursor" then
@@ -2731,6 +2736,9 @@ function Guda_ItemButton_OnLeave(self)
     -- Clear any viewed character hint on the tooltip when leaving
     if GameTooltip then
         GameTooltip.GudaViewedCharacter = nil
+        if GameTooltip.gudaOwner == self then
+            GameTooltip.gudaOwner = nil
+        end
     end
     GameTooltip:Hide()
     ResetCursor()
@@ -2744,3 +2752,23 @@ function Guda_ItemButton_OnLeave(self)
         end
     end
 end
+
+-- Refresh tooltip when SHIFT state toggles during hover, so the compare-item
+-- tooltip attaches/detaches without the user having to re-enter the button.
+-- Our OnEnter replaces Blizzard's inherited handler and doesn't set
+-- self.updateTooltip, so the template's inherited OnUpdate never re-fires.
+-- We track the hovered button via GameTooltip.gudaOwner (set in OnEnter /
+-- cleared in OnLeave) because GameTooltip:GetOwner() returns UIParent — our
+-- OnEnter uses SetOwner(UIParent, ANCHOR_NONE) + SetPoint for positioning.
+local shiftLastDown = false
+local shiftWatcher = CreateFrame("Frame")
+shiftWatcher:RegisterEvent("MODIFIER_STATE_CHANGED")
+shiftWatcher:SetScript("OnEvent", function()
+    local down = IsShiftKeyDown() and true or false
+    if down == shiftLastDown then return end
+    shiftLastDown = down
+    local owner = GameTooltip.gudaOwner
+    if not owner or not owner.hasItem then return end
+    if not GameTooltip:IsShown() then return end
+    Guda_ItemButton_OnEnter(owner)
+end)
