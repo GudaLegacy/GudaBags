@@ -2,7 +2,7 @@
 ## Title: GudaBags
 ## Notes: All-in-one bag and bank addon for World of Warcraft 3.3.5a (WotLK / Ascension Epoch)
 ## Author: Vati
-## Version: 1.0.5
+## Version: 1.0.6
 ## SavedVariables: Guda_DB
 ## SavedVariablesPerCharacter: Guda_CharDB
 ## X-Client: WotLK 3.3.5a

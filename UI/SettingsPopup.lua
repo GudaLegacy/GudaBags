@@ -2190,30 +2190,31 @@ function Guda_SettingsPopup_CategoriesTab_Update()
                         row.builtInText:Hide()
                     end
 
-                    -- Hide all controls for hideControls categories (only checkbox visible)
+                    -- hideControls hides edit/delete/built-in label but KEEPS
+                    -- the up/down arrows — the Empty category should be
+                    -- reorderable while still being non-editable.
                     if categoryDef.hideControls then
                         row.editBtn:Hide()
-                        row.upBtn:Hide()
-                        row.downBtn:Hide()
                         row.deleteBtn:Hide()
                         row.builtInText:Hide()
                     else
                         row.editBtn:Show()
-                        row.upBtn:Show()
-                        row.downBtn:Show()
+                    end
 
-                        -- Enable/disable move buttons based on group-aware boundaries
-                        if Guda.Modules.CategoryManager:CanMoveUp(categoryId) then
-                            row.upBtn:Enable()
-                        else
-                            row.upBtn:Disable()
-                        end
+                    row.upBtn:Show()
+                    row.downBtn:Show()
 
-                        if Guda.Modules.CategoryManager:CanMoveDown(categoryId) then
-                            row.downBtn:Enable()
-                        else
-                            row.downBtn:Disable()
-                        end
+                    -- Enable/disable move buttons based on group-aware boundaries
+                    if Guda.Modules.CategoryManager:CanMoveUp(categoryId) then
+                        row.upBtn:Enable()
+                    else
+                        row.upBtn:Disable()
+                    end
+
+                    if Guda.Modules.CategoryManager:CanMoveDown(categoryId) then
+                        row.downBtn:Enable()
+                    else
+                        row.downBtn:Disable()
                     end
 
                     -- Set text color based on enabled state
@@ -2511,6 +2512,13 @@ function Guda_CategoryEditor_Open(categoryId)
 
     local categoryDef = Guda.Modules.CategoryManager:GetCategory(categoryId)
     if not categoryDef then return end
+
+    -- Refuse to open the editor for categories whose controls are hidden
+    -- (e.g. the built-in Empty category — its name/rules/group are not
+    -- user-editable). The Edit button is normally hidden for these, but a
+    -- macro, slash command, or future code path could still call this
+    -- function; this is the defense-in-depth gate.
+    if categoryDef.isEmptyCategory or categoryDef.hideControls then return end
 
     editorCategoryId = categoryId
     editorMatchMode = categoryDef.matchMode or "any"

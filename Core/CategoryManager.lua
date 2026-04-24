@@ -747,7 +747,9 @@ end
 function CategoryManager:CanMoveUp(categoryId)
     local cats = self:GetCategories()
     local def = cats.definitions[categoryId]
-    if not def or def.hideControls then return false end
+    -- `hideControls` hides edit/delete buttons but no longer blocks sorting,
+    -- so the built-in Empty category can be repositioned in the category list.
+    if not def then return false end
 
     for i, id in ipairs(cats.order) do
         if id == categoryId then
@@ -768,7 +770,7 @@ end
 function CategoryManager:CanMoveDown(categoryId)
     local cats = self:GetCategories()
     local def = cats.definitions[categoryId]
-    if not def or def.hideControls then return false end
+    if not def then return false end
 
     local count = table.getn(cats.order)
     for i, id in ipairs(cats.order) do
@@ -790,7 +792,7 @@ end
 function CategoryManager:MoveCategoryUp(categoryId)
     local cats = self:GetCategories()
     local def = cats.definitions[categoryId]
-    if not def or def.hideControls then return false end
+    if not def then return false end
 
     for i, id in ipairs(cats.order) do
         if id == categoryId then
@@ -820,7 +822,7 @@ end
 function CategoryManager:MoveCategoryDown(categoryId)
     local cats = self:GetCategories()
     local def = cats.definitions[categoryId]
-    if not def or def.hideControls then return false end
+    if not def then return false end
 
     local count = table.getn(cats.order)
 
