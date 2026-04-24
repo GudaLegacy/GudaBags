@@ -2272,7 +2272,9 @@ function Guda_SettingsPopup_AddCategory_OnClick()
 end
 
 -- Reset categories to defaults (confirmation dialog + actual reset)
-StaticPopupDialogs = StaticPopupDialogs or {}
+-- DO NOT re-assign the StaticPopupDialogs global here (`foo = foo or {}` is an
+-- unconditional SETGLOBAL in Lua, which taints the Blizzard-owned table and
+-- breaks popup-confirmed protected actions like REPLACE_ENCHANT / DELETE_GOOD_ITEM).
 StaticPopupDialogs["GUDA_RESET_CATEGORIES"] = {
     text = Guda_L["Reset all categories and rules to defaults? Your customizations will be lost."]
         or "Reset all categories and rules to defaults? Your customizations will be lost.",
