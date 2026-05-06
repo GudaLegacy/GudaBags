@@ -1220,6 +1220,16 @@ local function BuildTargetPositions(bagIDs, itemCount, pinnedSlots)
 	local positions = {}
 	local index = 1
 
+	-- Right-to-left mode: when ON, fill bags from the last regular bag toward
+	-- the first, and within each bag fill the highest-index slot first.
+	-- Read once at function entry; the flag is constant within a sort run so
+	-- the produced position list stays deterministic across multi-pass loops
+	-- (preserving ApplySort's oscillation guard).
+	local rightToLeft = false
+	if addon.Modules.DB and addon.Modules.DB.GetSetting then
+		rightToLeft = addon.Modules.DB:GetSetting("sortRightToLeft") and true or false
+	end
+
 	-- Sort bags by priority (descending), then by bag ID (ascending)
 	local sortedBags = {}
 	for _, bagID in ipairs(bagIDs) do
@@ -1241,13 +1251,28 @@ local function BuildTargetPositions(bagIDs, itemCount, pinnedSlots)
 		end)
 	end
 
+	-- Right-to-left: walk sortedBags in reverse so the visually-rightmost bag
+	-- fills first.
+	if rightToLeft and table.getn(sortedBags) > 1 then
+		local n = table.getn(sortedBags)
+		for i = 1, math.floor(n / 2) do
+			sortedBags[i], sortedBags[n - i + 1] = sortedBags[n - i + 1], sortedBags[i]
+		end
+	end
+
 	-- Build positions in priority order
 	for _, bagInfo in ipairs(sortedBags) do
 		local bagID = bagInfo.bagID
 		local numSlots = addon.Modules.Utils:GetBagSlotCount(bagID)
 
 		if addon.Modules.Utils:IsBagValid(bagID) then
-			for slot = 1, numSlots do
+			local slotStart, slotEnd, slotStep
+			if rightToLeft then
+				slotStart, slotEnd, slotStep = numSlots, 1, -1
+			else
+				slotStart, slotEnd, slotStep = 1, numSlots, 1
+			end
+			for slot = slotStart, slotEnd, slotStep do
 				if index <= itemCount then
 					-- Skip pinned slots
 					if not (pinnedSlots and pinnedSlots[bagID * 1000 + slot]) then
@@ -1424,8 +1449,16 @@ local function BuildGreyTailPositions(bagIDs, greyCount, pinnedSlots)
 	local positions = {}
 	if greyCount <= 0 then return positions end
 
-	-- Order bags: lowest priority first (these are considered "last"),
-	-- and for stable, pick higher bagID later within same priority.
+	-- Right-to-left mode flips the "tail" definition: junk fills the visual
+	-- LEFT (lowest-index slots in the highest-priority/leftmost bags) instead
+	-- of the visual right. Mirrors the modern Anniversary GudaBags semantics.
+	local rightToLeft = false
+	if addon.Modules.DB and addon.Modules.DB.GetSetting then
+		rightToLeft = addon.Modules.DB:GetSetting("sortRightToLeft") and true or false
+	end
+
+	-- Order bags: in default mode, lowest priority first (the "last" bag);
+	-- in RTL mode, highest priority first so junk lands at the visual left.
 	local ordered = {}
 	for _, bagID in ipairs(bagIDs) do
 	-- ONLY include bags that are valid and have slots
@@ -1447,16 +1480,31 @@ local function BuildGreyTailPositions(bagIDs, greyCount, pinnedSlots)
 			if not a then return false end
 			if not b then return true end
 			if (a.priority or 0) ~= (b.priority or 0) then
-				return (a.priority or 0) < (b.priority or 0) -- lowest first
+				if rightToLeft then
+					return (a.priority or 0) > (b.priority or 0) -- highest first
+				else
+					return (a.priority or 0) < (b.priority or 0) -- lowest first
+				end
 			end
-			return (a.bagID or 0) > (b.bagID or 0) -- higher bagID later (treated as further to the right)
+			if rightToLeft then
+				return (a.bagID or 0) < (b.bagID or 0) -- lower bagID first (visually leftmost)
+			else
+				return (a.bagID or 0) > (b.bagID or 0) -- higher bagID later (further to the right)
+			end
 		end)
 	end
 
-	-- Collect tail slots from end to start, spilling to previous bags as needed.
+	-- Collect tail slots, spilling across bags. Default: end-to-start within each
+	-- bag; RTL: start-to-end so the leftmost slots get the junk.
 	local tailSlots = {}
 	for _, info in ipairs(ordered) do
-		for slot = info.numSlots, 1, -1 do
+		local slotStart, slotEnd, slotStep
+		if rightToLeft then
+			slotStart, slotEnd, slotStep = 1, info.numSlots, 1
+		else
+			slotStart, slotEnd, slotStep = info.numSlots, 1, -1
+		end
+		for slot = slotStart, slotEnd, slotStep do
 			if table.getn(tailSlots) < greyCount and not (pinnedSlots and pinnedSlots[info.bagID * 1000 + slot]) then
 				table.insert(tailSlots, { bag = info.bagID, slot = slot })
 			else
@@ -1466,9 +1514,11 @@ local function BuildGreyTailPositions(bagIDs, greyCount, pinnedSlots)
 		if table.getn(tailSlots) >= greyCount then break end
 	end
 
-	-- STABILITY FIX: Sort the collected tail slots to match the ascending scan order.
-	-- This ensures that identical items don't swap places every pass.
-	-- Ascending order: Priority DESC, BagID ASC, Slot ASC (matching BuildTargetPositions)
+	-- STABILITY FIX: Re-sort collected tail slots to match the matching scan
+	-- order so identical items don't swap places every pass. The order must
+	-- mirror BuildTargetPositions' fill order under the same flag, since both
+	-- the non-grey "front" list and the grey "tail" list are concatenated in
+	-- SortBagsPass and consumed in index order.
 	if table.getn(tailSlots) > 1 then
 		table.sort(tailSlots, function(a, b)
 			if not a then return false end
@@ -1479,9 +1529,17 @@ local function BuildGreyTailPositions(bagIDs, greyCount, pinnedSlots)
 				return aPrio > bPrio
 			end
 			if (a.bag or 0) ~= (b.bag or 0) then
-				return (a.bag or 0) < (b.bag or 0)
+				if rightToLeft then
+					return (a.bag or 0) > (b.bag or 0)
+				else
+					return (a.bag or 0) < (b.bag or 0)
+				end
 			end
-			return (a.slot or 0) < (b.slot or 0)
+			if rightToLeft then
+				return (a.slot or 0) > (b.slot or 0)
+			else
+				return (a.slot or 0) < (b.slot or 0)
+			end
 		end)
 	end
 

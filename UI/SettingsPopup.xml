@@ -277,23 +277,23 @@
                         </Scripts>
                     </CheckButton>
 
-                    <!-- Show Tooltip Counts Checkbox -->
-                    <CheckButton name="Guda_SettingsPopup_ShowTooltipCountsCheckbox" inherits="OptionsCheckButtonTemplate">
+                    <!-- Sort Right to Left Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_SortRightToLeftCheckbox" inherits="OptionsCheckButtonTemplate">
                         <Anchors>
                             <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_LockBagsCheckbox">
                                 <Offset><AbsDimension x="0" y="-8"/></Offset>
                             </Anchor>
                         </Anchors>
                         <Scripts>
-                            <OnLoad>Guda_SettingsPopup_ShowTooltipCountsCheckbox_OnLoad(this)</OnLoad>
-                            <OnClick>Guda_SettingsPopup_ShowTooltipCountsCheckbox_OnClick(this)</OnClick>
+                            <OnLoad>Guda_SettingsPopup_SortRightToLeftCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_SortRightToLeftCheckbox_OnClick(this)</OnClick>
                         </Scripts>
                     </CheckButton>
 
                     <!-- Reverse Stack Sort Checkbox -->
                     <CheckButton name="Guda_SettingsPopup_ReverseStackSortCheckbox" inherits="OptionsCheckButtonTemplate">
                         <Anchors>
-                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_ShowTooltipCountsCheckbox">
+                            <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_SortRightToLeftCheckbox">
                                 <Offset><AbsDimension x="200" y="0"/></Offset>
                             </Anchor>
                         </Anchors>
@@ -303,12 +303,30 @@
                         </Scripts>
                     </CheckButton>
 
+                    <!-- Show Tooltip Counts Checkbox -->
+                    <CheckButton name="Guda_SettingsPopup_ShowTooltipCountsCheckbox" inherits="OptionsCheckButtonTemplate">
+                        <Anchors>
+                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_SortRightToLeftCheckbox">
+                                <Offset><AbsDimension x="0" y="-8"/></Offset>
+                            </Anchor>
+                        </Anchors>
+                        <Scripts>
+                            <OnLoad>Guda_SettingsPopup_ShowTooltipCountsCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_ShowTooltipCountsCheckbox_OnClick(this)</OnClick>
+                        </Scripts>
+                    </CheckButton>
+
                     <!-- Automation section -->
                     <!-- Auto Close Bags Checkbox -->
+                    <!-- Anchored directly to the tab (not the previous checkbox) so the
+                         gap below the "Automation" section label matches the gap below
+                         the "Options" section label. Section labels are placed by
+                         CreateSectionHeader (Options at y=-140 → LockBags at y=-164;
+                         Automation at y=-285 → AutoCloseBags at y=-309). -->
                     <CheckButton name="Guda_SettingsPopup_AutoCloseBagsCheckbox" inherits="OptionsCheckButtonTemplate">
                         <Anchors>
-                            <Anchor point="TOPLEFT" relativePoint="BOTTOMLEFT" relativeTo="Guda_SettingsPopup_ShowTooltipCountsCheckbox">
-                                <Offset><AbsDimension x="0" y="-45"/></Offset>
+                            <Anchor point="TOPLEFT" relativeTo="Guda_SettingsPopup_GeneralTab" relativePoint="TOPLEFT">
+                                <Offset><AbsDimension x="5" y="-309"/></Offset>
                             </Anchor>
                         </Anchors>
                         <Scripts>

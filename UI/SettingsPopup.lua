@@ -73,7 +73,7 @@ function Guda_SettingsPopup_OnLoad(self)
     if generalTab then
         CreateSectionHeader(generalTab, "Appearance", -12)
         CreateSectionHeader(generalTab, "Options", -140)
-        CreateSectionHeader(generalTab, "Automation", -250)
+        CreateSectionHeader(generalTab, "Automation", -285)
     end
 
     local layoutTab = getglobal("Guda_SettingsPopup_LayoutTab")
@@ -269,6 +269,22 @@ function Guda_SettingsPopup_OnShow(self)
         else
             elvuiTranspCB:Hide()
         end
+    end
+
+    -- Refresh sort-related checkboxes. Their XML OnLoad fires before
+    -- Guda_CharDB is initialized, so the saved value can't be read until
+    -- the popup is opened (here, in OnShow).
+    local reverseStackSortCB = getglobal("Guda_SettingsPopup_ReverseStackSortCheckbox")
+    if reverseStackSortCB then
+        local val = Guda.Modules.DB:GetSetting("reverseStackSort")
+        if val == nil then val = false end
+        reverseStackSortCB:SetChecked(val and 1 or 0)
+    end
+    local sortRightToLeftCB = getglobal("Guda_SettingsPopup_SortRightToLeftCheckbox")
+    if sortRightToLeftCB then
+        local val = Guda.Modules.DB:GetSetting("sortRightToLeft")
+        if val == nil then val = false end
+        sortRightToLeftCB:SetChecked(val and 1 or 0)
     end
 
     if qualityBorderEquipmentCheckbox then
@@ -1933,6 +1949,46 @@ function Guda_SettingsPopup_ReverseStackSortCheckbox_OnClick(self)
     -- Save setting
     if Guda and Guda.Modules and Guda.Modules.DB then
         Guda.Modules.DB:SetSetting("reverseStackSort", isChecked)
+    end
+
+    -- Note: Sorting will use the new setting on next sort operation
+    -- No immediate UI update needed
+end
+
+-- Sort Right to Left Checkbox OnLoad
+function Guda_SettingsPopup_SortRightToLeftCheckbox_OnLoad(self)
+    local text = getglobal(self:GetName().."Text")
+    if text then
+        text:SetText(Guda_L["Sort Right to Left"])
+
+        -- Match the visual size used by other sort checkboxes
+        local font, _, flags = text:GetFont()
+        if font then
+            text:SetFont(font, 13, flags)
+        end
+    end
+
+    -- Tooltip
+    self.tooltipText = Guda_L["Sort bags from right to left instead of left to right"]
+
+    local rightToLeft = false
+    if Guda and Guda.Modules and Guda.Modules.DB then
+        rightToLeft = Guda.Modules.DB:GetSetting("sortRightToLeft")
+        if rightToLeft == nil then
+            rightToLeft = false
+        end
+    end
+
+    self:SetChecked(rightToLeft and 1 or 0)
+end
+
+-- Sort Right to Left Checkbox OnClick
+function Guda_SettingsPopup_SortRightToLeftCheckbox_OnClick(self)
+    local isChecked = self:GetChecked() == 1
+
+    -- Save setting
+    if Guda and Guda.Modules and Guda.Modules.DB then
+        Guda.Modules.DB:SetSetting("sortRightToLeft", isChecked)
     end
 
     -- Note: Sorting will use the new setting on next sort operation
