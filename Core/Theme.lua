@@ -16,25 +16,18 @@ local function ThemeDebug(msg, a1, a2, a3, a4, a5, a6, a7)
     end
 end
 
--- Read a color from pfUI_config.appearance.border (e.g. "background" or "color")
--- pfUI stores colors as comma-separated strings: "R,G,B,A"
-local function ParseColorString(str)
-    if not str then return nil end
-    local vals = {}
-    for v in string.gfind(str, "[^,]+") do
-        table.insert(vals, tonumber(v))
-    end
-    if vals[1] then
-        return vals[1], vals[2], vals[3], vals[4]
-    end
-    return nil
-end
-
-local function GetPfUIColor(key)
-    if pfUI_config and pfUI_config.appearance and pfUI_config.appearance.border then
-        return ParseColorString(pfUI_config.appearance.border[key])
-    end
-    return nil
+-- Read a color from ElvUI's profile DB.
+--   key = "background" -> E.db.general.backdropcolor (RGB only; a = nil)
+--   key = "fade"       -> E.db.general.backdropfadecolor (RGBA, with alpha)
+-- Returns nil when ElvUI isn't loaded/initialized yet so callers fall back to
+-- the static theme defaults rather than nil-indexing.
+local function GetElvUIColor(key)
+    if not ElvUI then return nil end
+    local E = ElvUI[1]
+    if not E or not E.initialized or not E.db or not E.db.general then return nil end
+    local c = (key == "fade") and E.db.general.backdropfadecolor or E.db.general.backdropcolor
+    if not c then return nil end
+    return c.r, c.g, c.b, c.a
 end
 
 -- Theme definitions
@@ -99,9 +92,9 @@ local themes = {
         headerButtonBg = { 0.15, 0.12, 0.10, 0.6 },
         headerButtonBorder = { 0.45, 0.40, 0.35, 1 },
     },
-    pfui = {
+    elvui = {
         bgTexture = "Interface\\Buttons\\WHITE8x8",
-        bgColor = { r = 0, g = 0, b = 0 },
+        bgColor = { r = 0.1, g = 0.1, b = 0.1 },  -- ElvUI default backdropcolor
         bgTile = false,
         bgTileSize = 1,
         border = {
@@ -117,7 +110,7 @@ local themes = {
         nineSlice = nil,
         titleColor = { r = 1, g = 1, b = 1 },
         slotBgAlpha = { empty = 0.5, filled = 0.3 },
-        footerButtonBg = { 0, 0, 0, 1 },
+        footerButtonBg = { 0.1, 0.1, 0.1, 1 },
         footerButtonBorder = { 0.2, 0.2, 0.2, 1 },
         showHeaderButtonBg = false,
         slotStyle = "square",
@@ -147,21 +140,19 @@ function Theme:Get()
     cachedThemeName = name
     local base = themes[name] or themes.guda
 
-    -- When pfUI theme is active and pfUI is loaded, inherit pfUI's colors
-    if name == "pfui" then
+    -- When ElvUI theme is active and ElvUI is loaded, inherit ElvUI's
+    -- "Backdrop Color" (E.db.general.backdropcolor) for the bag background.
+    -- ElvUI doesn't expose a separate border color in db.general worth
+    -- inheriting, so the static borderColor in the theme table stands.
+    if name == "elvui" then
         -- Shallow copy so we don't mutate the static theme table
         local t = {}
         for k, v in pairs(base) do t[k] = v end
 
-        local br, bg, bb, ba = GetPfUIColor("background")
+        local br, bg, bb = GetElvUIColor("background")
         if br then
             t.bgColor = { r = br, g = bg, b = bb }
-            t.footerButtonBg = { br, bg, bb, ba or 1 }
-        end
-        local er, eg, eb, ea = GetPfUIColor("color")
-        if er then
-            t.borderColor = { er, eg, eb, ea or 1 }
-            t.footerButtonBorder = { er, eg, eb, ea or 1 }
+            t.footerButtonBg = { br, bg, bb, 1 }
         end
         cachedTheme = t
     else
@@ -177,7 +168,7 @@ function Theme:GetValue(key)
     return t[key]
 end
 
--- Get slot style (square for pfUI, rounded for others)
+-- Get slot style (square for elvui, rounded for others)
 function Theme:GetSlotStyle()
     return self:GetValue("slotStyle") or "rounded"
 end
@@ -187,7 +178,7 @@ function Theme:GetQualityBorderStyle()
     return self:GetValue("qualityBorderStyle") or "rounded"
 end
 
--- Get frame padding values (reduced for pfUI borderless style)
+-- Get frame padding values (reduced for borderless/square style)
 function Theme:GetFramePadding()
     local style = self:GetSlotStyle()
     if style == "square" then
@@ -496,13 +487,13 @@ function Theme:ApplyToFrame(frame)
     -- Background color / alpha
     local bg = t.bgColor
     local alpha
-    local usePfUITransp = false
+    local useElvUITransp = false
     if addon.Modules and addon.Modules.DB then
-        usePfUITransp = addon.Modules.DB:GetSetting("usePfUITransparency")
+        useElvUITransp = addon.Modules.DB:GetSetting("useElvUITransparency")
     end
-    if cachedThemeName == "pfui" and usePfUITransp ~= false then
-        local _, _, _, ba = GetPfUIColor("background")
-        alpha = ba or 1
+    if cachedThemeName == "elvui" and useElvUITransp ~= false then
+        local _, _, _, fa = GetElvUIColor("fade")
+        alpha = fa or 1
     else
         local transparency = 0.15
         if addon.Modules and addon.Modules.DB then
@@ -582,7 +573,7 @@ function Theme:ApplyToAllFrames()
     -- Update search box styling
     self:ApplySearchBoxStyle()
 
-    -- Adjust frame padding for borderless/pfUI themes
+    -- Adjust frame padding for borderless/square themes
     self:ApplyFramePadding()
 
     ThemeDebug("=== ApplyToAllFrames done ===")
@@ -700,7 +691,7 @@ function Theme:ApplySearchBoxStyle()
                 if left then left:Hide() end
                 if right then right:Hide() end
                 if mid then mid:Hide() end
-                -- Apply pfUI-style backdrop
+                -- Apply square 1px backdrop
                 box:SetBackdrop({
                     bgFile = "Interface\\Buttons\\WHITE8x8",
                     edgeFile = "Interface\\Buttons\\WHITE8x8",
@@ -737,22 +728,23 @@ end
 -- Adjust header/footer padding to match theme border style
 function Theme:ApplyFramePadding()
     local slotStyle = self:GetSlotStyle()
-    -- Only adjust for pfUI/square style; otherwise restore defaults
-    local isPfui = (slotStyle == "square")
+    -- Tight padding for square/minimal-border themes (currently elvui),
+    -- relaxed defaults for the others (guda, blizzard).
+    local isSquare = (slotStyle == "square")
 
     -- BagFrame adjustments
     local bagFrameElements = {
-        { name = "Guda_BagFrame_Title",       pfui = { "TOP", nil, "TOP", 0, -8 },        default = { "TOP", nil, "TOP", 0, -12 } },
-        { name = "Guda_BagFrame_CloseButton", pfui = { "TOPRIGHT", nil, "TOPRIGHT", -5, -5 }, default = { "TOPRIGHT", nil, "TOPRIGHT", -13, -10 } },
-        { name = "Guda_BagFrame_CharsButton", pfui = { "TOPLEFT", nil, "TOPLEFT", 10, -8 },   default = { "TOPLEFT", nil, "TOPLEFT", 21, -15 } },
-        { name = "Guda_BagFrame_SearchBar",   pfui = { "TOP", nil, "TOP", 0, -30 },       default = { "TOP", nil, "TOP", 0, -40 } },
-        { name = "Guda_BagFrame_Toolbar",     pfui = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 5, 5 }, default = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 10, 5 } },
-        { name = "Guda_BagFrame_MoneyFrame", pfui = { "BOTTOMRIGHT", nil, "BOTTOMRIGHT", -5, 7 }, default = { "BOTTOMRIGHT", nil, "BOTTOMRIGHT", -5, 7 } },
+        { name = "Guda_BagFrame_Title",       square = { "TOP", nil, "TOP", 0, -8 },        default = { "TOP", nil, "TOP", 0, -12 } },
+        { name = "Guda_BagFrame_CloseButton", square = { "TOPRIGHT", nil, "TOPRIGHT", -5, -5 }, default = { "TOPRIGHT", nil, "TOPRIGHT", -13, -10 } },
+        { name = "Guda_BagFrame_CharsButton", square = { "TOPLEFT", nil, "TOPLEFT", 10, -8 },   default = { "TOPLEFT", nil, "TOPLEFT", 21, -15 } },
+        { name = "Guda_BagFrame_SearchBar",   square = { "TOP", nil, "TOP", 0, -30 },       default = { "TOP", nil, "TOP", 0, -40 } },
+        { name = "Guda_BagFrame_Toolbar",     square = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 5, 5 }, default = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 10, 5 } },
+        { name = "Guda_BagFrame_MoneyFrame", square = { "BOTTOMRIGHT", nil, "BOTTOMRIGHT", -5, 7 }, default = { "BOTTOMRIGHT", nil, "BOTTOMRIGHT", -5, 7 } },
     }
     for _, elem in ipairs(bagFrameElements) do
         local frame = getglobal(elem.name)
         if frame then
-            local pos = isPfui and elem.pfui or elem.default
+            local pos = isSquare and elem.square or elem.default
             local parent = frame:GetParent()
             frame:ClearAllPoints()
             frame:SetPoint(pos[1], parent, pos[3], pos[4], pos[5])
@@ -761,16 +753,16 @@ function Theme:ApplyFramePadding()
 
     -- BankFrame adjustments (similar structure)
     local bankFrameElements = {
-        { name = "Guda_BankFrame_Title",          pfui = { "TOP", nil, "TOP", 0, -8 },            default = { "TOP", nil, "TOP", 0, -12 } },
-        { name = "Guda_BankFrame_CloseButton",  pfui = { "TOPRIGHT", nil, "TOPRIGHT", -5, -5 }, default = { "TOPRIGHT", nil, "TOPRIGHT", -13, -10 } },
-        { name = "Guda_BankFrame_BlizzardUIButton", pfui = { "TOPLEFT", nil, "TOPLEFT", 10, -8 }, default = { "TOPLEFT", nil, "TOPLEFT", 23, -15 } },
-        { name = "Guda_BankFrame_SearchBar",    pfui = { "TOP", nil, "TOP", 0, -30 },       default = { "TOP", nil, "TOP", 0, -40 } },
-        { name = "Guda_BankFrame_Toolbar",      pfui = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 5, 5 }, default = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 15, 5 } },
+        { name = "Guda_BankFrame_Title",          square = { "TOP", nil, "TOP", 0, -8 },            default = { "TOP", nil, "TOP", 0, -12 } },
+        { name = "Guda_BankFrame_CloseButton",  square = { "TOPRIGHT", nil, "TOPRIGHT", -5, -5 }, default = { "TOPRIGHT", nil, "TOPRIGHT", -13, -10 } },
+        { name = "Guda_BankFrame_BlizzardUIButton", square = { "TOPLEFT", nil, "TOPLEFT", 10, -8 }, default = { "TOPLEFT", nil, "TOPLEFT", 23, -15 } },
+        { name = "Guda_BankFrame_SearchBar",    square = { "TOP", nil, "TOP", 0, -30 },       default = { "TOP", nil, "TOP", 0, -40 } },
+        { name = "Guda_BankFrame_Toolbar",      square = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 5, 5 }, default = { "BOTTOMLEFT", nil, "BOTTOMLEFT", 15, 5 } },
     }
     for _, elem in ipairs(bankFrameElements) do
         local frame = getglobal(elem.name)
         if frame then
-            local pos = isPfui and elem.pfui or elem.default
+            local pos = isSquare and elem.square or elem.default
             local parent = frame:GetParent()
             frame:ClearAllPoints()
             frame:SetPoint(pos[1], parent, pos[3], pos[4], pos[5])

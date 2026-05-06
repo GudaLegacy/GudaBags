@@ -223,16 +223,16 @@
                         </Scripts>
                     </Frame>
 
-                    <!-- pfUI Transparency Checkbox (visible only when pfUI theme selected) -->
-                    <CheckButton name="Guda_SettingsPopup_UsePfUITransparencyCheckbox" inherits="OptionsCheckButtonTemplate">
+                    <!-- ElvUI Transparency Checkbox (visible only when ElvUI theme selected) -->
+                    <CheckButton name="Guda_SettingsPopup_UseElvUITransparencyCheckbox" inherits="OptionsCheckButtonTemplate">
                         <Anchors>
                             <Anchor point="LEFT" relativePoint="RIGHT" relativeTo="Guda_SettingsPopup_ThemeDropdown">
                                 <Offset><AbsDimension x="130" y="2"/></Offset>
                             </Anchor>
                         </Anchors>
                         <Scripts>
-                            <OnLoad>Guda_SettingsPopup_UsePfUITransparencyCheckbox_OnLoad(this)</OnLoad>
-                            <OnClick>Guda_SettingsPopup_UsePfUITransparencyCheckbox_OnClick(this)</OnClick>
+                            <OnLoad>Guda_SettingsPopup_UseElvUITransparencyCheckbox_OnLoad(this)</OnLoad>
+                            <OnClick>Guda_SettingsPopup_UseElvUITransparencyCheckbox_OnClick(this)</OnClick>
                         </Scripts>
                     </CheckButton>
 

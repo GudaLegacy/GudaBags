@@ -221,7 +221,7 @@ L["Auto Sell Junk"] = "Auto Sell Junk"
 L["Auto Open Bags"] = "Auto Open Bags"
 L["Auto Close Bags"] = "Auto Close Bags"
 L["White Items as Junk"] = "White Items as Junk"
-L["pfUI Transparency"] = "pfUI Transparency"
+L["ElvUI Transparency"] = "ElvUI Transparency"
 L["Edit"] = "Edit"
 L["Save"] = "Save"
 L["Cancel"] = "Cancel"
@@ -278,7 +278,7 @@ L["Automatically sell gray (junk) items when you visit a vendor."] = "Automatica
 L["Automatically open bags when interacting with bank, auction house, mail, or trade."] = "Automatically open bags when interacting with bank, auction house, mail, or trade."
 L["Automatically close bags when closing bank, auction house, mail, trade, or vendor."] = "Automatically close bags when closing bank, auction house, mail, trade, or vendor."
 L["Treat white (common) equippable items as junk. They will be dimmed and auto-sold if auto-sell is enabled."] = "Treat white (common) equippable items as junk. They will be dimmed and auto-sold if auto-sell is enabled."
-L["When enabled, uses pfUI's background transparency instead of the slider below."] = "When enabled, uses pfUI's background transparency instead of the slider below."
+L["When enabled, uses ElvUI's backdrop transparency instead of the slider below."] = "When enabled, uses ElvUI's backdrop transparency instead of the slider below."
 L["When enabled, smaller stacks of the same item will be sorted before larger stacks (e.g., stack of 16 before stack of 20)."] = "When enabled, smaller stacks of the same item will be sorted before larger stacks (e.g., stack of 16 before stack of 20)."
 
 -- Categories tab + Guide tab
@@ -527,7 +527,7 @@ if locale == "zhCN" then
     L["Auto Open Bags"] = "自动打开背包"
     L["Auto Close Bags"] = "自动关闭背包"
     L["White Items as Junk"] = "白色物品视为垃圾"
-    L["pfUI Transparency"] = "pfUI 透明度"
+    L["ElvUI Transparency"] = "ElvUI 透明度"
     L["Reverse Stack Sort"] = "反向堆叠排序"
     L["Edit"] = "编辑"
     L["Save"] = "保存"
@@ -595,7 +595,7 @@ if locale == "zhCN" then
     L["Automatically open bags when interacting with bank, auction house, mail, or trade."] = "与银行、拍卖行、邮箱或交易交互时自动打开背包。"
     L["Automatically close bags when closing bank, auction house, mail, trade, or vendor."] = "关闭银行、拍卖行、邮箱、交易或商人时自动关闭背包。"
     L["Treat white (common) equippable items as junk. They will be dimmed and auto-sold if auto-sell is enabled."] = "将白色(普通)可装备物品视为垃圾。它们将变暗,如果启用了自动出售,会被自动出售。"
-    L["When enabled, uses pfUI's background transparency instead of the slider below."] = "启用后,使用 pfUI 的背景透明度而不是下方的滑块。"
+    L["When enabled, uses ElvUI's backdrop transparency instead of the slider below."] = "启用后,使用 ElvUI 的背景透明度而不是下方的滑块。"
     L["When enabled, smaller stacks of the same item will be sorted before larger stacks (e.g., stack of 16 before stack of 20)."] = "启用后,同一物品较小的堆叠会排在较大的堆叠之前(例如,16 组排在 20 组之前)。"
 
     -- Categories / Guide
@@ -786,7 +786,7 @@ elseif locale == "esES" then
     L["Auto Open Bags"] = "Abrir bolsas automáticamente"
     L["Auto Close Bags"] = "Cerrar bolsas automáticamente"
     L["White Items as Junk"] = "Objetos blancos como basura"
-    L["pfUI Transparency"] = "Transparencia pfUI"
+    L["ElvUI Transparency"] = "Transparencia ElvUI"
     L["Reverse Stack Sort"] = "Orden de pila inverso"
     L["Edit"] = "Editar"
     L["Save"] = "Guardar"
@@ -850,7 +850,7 @@ elseif locale == "esES" then
     L["Automatically open bags when interacting with bank, auction house, mail, or trade."] = "Abre automáticamente las bolsas al interactuar con el banco, la casa de subastas, el correo o el comercio."
     L["Automatically close bags when closing bank, auction house, mail, trade, or vendor."] = "Cierra automáticamente las bolsas al cerrar el banco, la casa de subastas, el correo, el comercio o el vendedor."
     L["Treat white (common) equippable items as junk. They will be dimmed and auto-sold if auto-sell is enabled."] = "Trata los objetos equipables blancos (comunes) como basura. Se atenuarán y se venderán automáticamente si la venta automática está activa."
-    L["When enabled, uses pfUI's background transparency instead of the slider below."] = "Cuando está activado, usa la transparencia de fondo de pfUI en lugar del control deslizante de abajo."
+    L["When enabled, uses ElvUI's backdrop transparency instead of the slider below."] = "Cuando está activado, usa la transparencia de fondo de ElvUI en lugar del control deslizante de abajo."
     L["When enabled, smaller stacks of the same item will be sorted before larger stacks (e.g., stack of 16 before stack of 20)."] = "Cuando está activado, las pilas más pequeñas del mismo objeto se ordenarán antes que las más grandes (p. ej., una pila de 16 antes que una de 20)."
 
     L["GUIDE_TEXT"] = "|cffffd100Seguir objetos:|r\n" ..
@@ -1040,7 +1040,7 @@ elseif locale == "ptBR" then
     L["Auto Open Bags"] = "Abrir bolsas automaticamente"
     L["Auto Close Bags"] = "Fechar bolsas automaticamente"
     L["White Items as Junk"] = "Itens brancos como lixo"
-    L["pfUI Transparency"] = "Transparência pfUI"
+    L["ElvUI Transparency"] = "Transparência ElvUI"
     L["Reverse Stack Sort"] = "Ordem de pilha inversa"
     L["Edit"] = "Editar"
     L["Save"] = "Salvar"
@@ -1104,7 +1104,7 @@ elseif locale == "ptBR" then
     L["Automatically open bags when interacting with bank, auction house, mail, or trade."] = "Abre as bolsas automaticamente ao interagir com banco, casa de leilões, correio ou comércio."
     L["Automatically close bags when closing bank, auction house, mail, trade, or vendor."] = "Fecha as bolsas automaticamente ao fechar banco, casa de leilões, correio, comércio ou vendedor."
     L["Treat white (common) equippable items as junk. They will be dimmed and auto-sold if auto-sell is enabled."] = "Trata itens equipáveis brancos (comuns) como lixo. Eles serão escurecidos e vendidos automaticamente se a venda automática estiver ativada."
-    L["When enabled, uses pfUI's background transparency instead of the slider below."] = "Quando ativado, usa a transparência de fundo do pfUI em vez do controle deslizante abaixo."
+    L["When enabled, uses ElvUI's backdrop transparency instead of the slider below."] = "Quando ativado, usa a transparência de fundo do ElvUI em vez do controle deslizante abaixo."
     L["When enabled, smaller stacks of the same item will be sorted before larger stacks (e.g., stack of 16 before stack of 20)."] = "Quando ativado, pilhas menores do mesmo item serão organizadas antes das pilhas maiores (ex: pilha de 16 antes da pilha de 20)."
 
     L["GUIDE_TEXT"] = "|cffffd100Rastreando itens:|r\n" ..
@@ -1294,7 +1294,7 @@ elseif locale == "deDE" then
     L["Auto Open Bags"] = "Taschen automatisch öffnen"
     L["Auto Close Bags"] = "Taschen automatisch schließen"
     L["White Items as Junk"] = "Weiße Gegenstände als Müll"
-    L["pfUI Transparency"] = "pfUI-Transparenz"
+    L["ElvUI Transparency"] = "ElvUI-Transparenz"
     L["Reverse Stack Sort"] = "Stapel umgekehrt sortieren"
     L["Edit"] = "Bearbeiten"
     L["Save"] = "Speichern"
@@ -1358,7 +1358,7 @@ elseif locale == "deDE" then
     L["Automatically open bags when interacting with bank, auction house, mail, or trade."] = "Öffnet die Taschen automatisch bei Interaktion mit Bank, Auktionshaus, Post oder Handel."
     L["Automatically close bags when closing bank, auction house, mail, trade, or vendor."] = "Schließt die Taschen automatisch beim Schließen von Bank, Auktionshaus, Post, Handel oder Händler."
     L["Treat white (common) equippable items as junk. They will be dimmed and auto-sold if auto-sell is enabled."] = "Behandelt weiße (gewöhnliche) ausrüstbare Gegenstände als Müll. Sie werden ausgegraut und automatisch verkauft, wenn der Auto-Verkauf aktiv ist."
-    L["When enabled, uses pfUI's background transparency instead of the slider below."] = "Wenn aktiviert, wird die pfUI-Hintergrundtransparenz statt des Schiebereglers unten verwendet."
+    L["When enabled, uses ElvUI's backdrop transparency instead of the slider below."] = "Wenn aktiviert, wird die ElvUI-Hintergrundtransparenz statt des Schiebereglers unten verwendet."
     L["When enabled, smaller stacks of the same item will be sorted before larger stacks (e.g., stack of 16 before stack of 20)."] = "Wenn aktiviert, werden kleinere Stapel desselben Gegenstands vor größeren Stapeln sortiert (z. B. Stapel mit 16 vor Stapel mit 20)."
 
     L["GUIDE_TEXT"] = "|cffffd100Gegenstände verfolgen:|r\n" ..
@@ -1548,7 +1548,7 @@ elseif locale == "ruRU" then
     L["Auto Open Bags"] = "Авто-открытие сумок"
     L["Auto Close Bags"] = "Авто-закрытие сумок"
     L["White Items as Junk"] = "Белые предметы как мусор"
-    L["pfUI Transparency"] = "Прозрачность pfUI"
+    L["ElvUI Transparency"] = "Прозрачность ElvUI"
     L["Reverse Stack Sort"] = "Обратный порядок стопок"
     L["Edit"] = "Изменить"
     L["Save"] = "Сохранить"
@@ -1612,7 +1612,7 @@ elseif locale == "ruRU" then
     L["Automatically open bags when interacting with bank, auction house, mail, or trade."] = "Автоматически открывает сумки при взаимодействии с банком, аукционом, почтой или обменом."
     L["Automatically close bags when closing bank, auction house, mail, trade, or vendor."] = "Автоматически закрывает сумки при закрытии банка, аукциона, почты, обмена или торговца."
     L["Treat white (common) equippable items as junk. They will be dimmed and auto-sold if auto-sell is enabled."] = "Считает белые (обычные) экипируемые предметы мусором. Они будут затемнены и проданы автоматически, если включена авто-продажа."
-    L["When enabled, uses pfUI's background transparency instead of the slider below."] = "Когда включено, использует прозрачность фона pfUI вместо ползунка ниже."
+    L["When enabled, uses ElvUI's backdrop transparency instead of the slider below."] = "Когда включено, использует прозрачность фона ElvUI вместо ползунка ниже."
     L["When enabled, smaller stacks of the same item will be sorted before larger stacks (e.g., stack of 16 before stack of 20)."] = "Когда включено, меньшие стопки одного и того же предмета будут отсортированы перед большими (например, стопка из 16 перед стопкой из 20)."
 
     L["GUIDE_TEXT"] = "|cffffd100Отслеживание предметов:|r\n" ..

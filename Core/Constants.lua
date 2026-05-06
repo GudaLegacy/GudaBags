@@ -254,8 +254,8 @@ C.TOOLTIP = {
 }
 
 --=============================================================================
--- pfUI Theme Defaults
+-- ElvUI Theme Defaults
 --=============================================================================
-C.PFUI_DEFAULT_BG_TRANSPARENCY = 0.4
+C.ELVUI_DEFAULT_BG_TRANSPARENCY = 0.4
 
 addon:Debug("Constants module loaded")

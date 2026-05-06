@@ -257,17 +257,17 @@ function Guda_SettingsPopup_OnShow(self)
         hideBordersCheckbox:SetChecked(hideBorders and 1 or 0)
     end
 
-    -- Refresh pfUI transparency checkbox visibility
-    local pfuiTranspCB = getglobal("Guda_SettingsPopup_UsePfUITransparencyCheckbox")
-    if pfuiTranspCB then
+    -- Refresh ElvUI transparency checkbox visibility
+    local elvuiTranspCB = getglobal("Guda_SettingsPopup_UseElvUITransparencyCheckbox")
+    if elvuiTranspCB then
         local currentTheme = Guda.Modules.DB:GetSetting("theme") or "guda"
-        if currentTheme == "pfui" then
-            local val = Guda.Modules.DB:GetSetting("usePfUITransparency")
+        if currentTheme == "elvui" then
+            local val = Guda.Modules.DB:GetSetting("useElvUITransparency")
             if val == nil then val = true end
-            pfuiTranspCB:SetChecked(val and 1 or 0)
-            pfuiTranspCB:Show()
+            elvuiTranspCB:SetChecked(val and 1 or 0)
+            elvuiTranspCB:Show()
         else
-            pfuiTranspCB:Hide()
+            elvuiTranspCB:Hide()
         end
     end
 
@@ -1670,40 +1670,40 @@ end
 local themeOptions = {
     { text = "Guda", value = "guda" },
     { text = "Blizzard", value = "blizzard" },
-    { text = "pfUI", value = "pfui" },
+    { text = "ElvUI", value = "elvui" },
 }
 
--- pfUI Transparency checkbox
-function Guda_SettingsPopup_UsePfUITransparencyCheckbox_OnLoad(self)
+-- ElvUI Transparency checkbox
+function Guda_SettingsPopup_UseElvUITransparencyCheckbox_OnLoad(self)
     local text = getglobal(self:GetName().."Text")
     if text then
-        text:SetText(Guda_L["pfUI Transparency"])
+        text:SetText(Guda_L["ElvUI Transparency"])
         local font, _, flags = text:GetFont()
         if font then
             text:SetFont(font, 13, flags)
         end
     end
-    self.tooltipText = Guda_L["When enabled, uses pfUI's background transparency instead of the slider below."]
+    self.tooltipText = Guda_L["When enabled, uses ElvUI's backdrop transparency instead of the slider below."]
 
     local val = true
     if Guda and Guda.Modules and Guda.Modules.DB then
-        local stored = Guda.Modules.DB:GetSetting("usePfUITransparency")
+        local stored = Guda.Modules.DB:GetSetting("useElvUITransparency")
         if stored ~= nil then val = stored end
     end
     self:SetChecked(val and 1 or 0)
 
-    -- Only show when pfUI theme is active
+    -- Only show when ElvUI theme is active
     local theme = "guda"
     if Guda and Guda.Modules and Guda.Modules.DB then
         theme = Guda.Modules.DB:GetSetting("theme") or "guda"
     end
-    if theme == "pfui" then self:Show() else self:Hide() end
+    if theme == "elvui" then self:Show() else self:Hide() end
 end
 
-function Guda_SettingsPopup_UsePfUITransparencyCheckbox_OnClick(self)
+function Guda_SettingsPopup_UseElvUITransparencyCheckbox_OnClick(self)
     local isChecked = self:GetChecked() == 1
     if Guda and Guda.Modules and Guda.Modules.DB then
-        Guda.Modules.DB:SetSetting("usePfUITransparency", isChecked)
+        Guda.Modules.DB:SetSetting("useElvUITransparency", isChecked)
     end
     if Guda.Modules and Guda.Modules.Theme then
         Guda.Modules.Theme:ClearCache()
@@ -1731,7 +1731,7 @@ function Guda_SettingsPopup_ThemeDropdown_OnLoad(self)
     UIDropDownMenu_Initialize(self, Guda_ThemeDropdown_Initialize)
     UIDropDownMenu_SetWidth(self, 130)
     local currentTheme = Guda.Modules.DB:GetSetting("theme") or "guda"
-    local names = { guda = "Guda", blizzard = "Blizzard", pfui = "pfUI" }
+    local names = { guda = "Guda", blizzard = "Blizzard", elvui = "ElvUI" }
     UIDropDownMenu_SetSelectedValue(self, currentTheme)
     UIDropDownMenu_SetText(self, names[currentTheme] or currentTheme)
 
@@ -1747,11 +1747,11 @@ function Guda_SettingsPopup_ApplyTheme(themeId)
     local DB = Guda.Modules.DB
     local oldTheme = DB:GetSetting("theme") or "guda"
 
-    -- Save current hideBorders/bgTransparency when leaving pfUI theme
-    if oldTheme == "pfui" and themeId ~= "pfui" then
-        -- Restore previously saved values (from before pfUI was applied)
-        local prevHide = DB:GetSetting("_prePfui_hideBorders")
-        local prevTransp = DB:GetSetting("_prePfui_bgTransparency")
+    -- Save current hideBorders/bgTransparency when leaving ElvUI theme
+    if oldTheme == "elvui" and themeId ~= "elvui" then
+        -- Restore previously saved values (from before ElvUI was applied)
+        local prevHide = DB:GetSetting("_preElvui_hideBorders")
+        local prevTransp = DB:GetSetting("_preElvui_bgTransparency")
         if prevHide ~= nil then
             DB:SetSetting("hideBorders", prevHide)
         else
@@ -1764,15 +1764,15 @@ function Guda_SettingsPopup_ApplyTheme(themeId)
         end
     end
 
-    -- Save current values before switching to pfUI, then apply pfUI defaults
-    if themeId == "pfui" and oldTheme ~= "pfui" then
-        DB:SetSetting("_prePfui_hideBorders", DB:GetSetting("hideBorders"))
-        DB:SetSetting("_prePfui_bgTransparency", DB:GetSetting("bgTransparency"))
+    -- Save current values before switching to ElvUI, then apply ElvUI defaults
+    if themeId == "elvui" and oldTheme ~= "elvui" then
+        DB:SetSetting("_preElvui_hideBorders", DB:GetSetting("hideBorders"))
+        DB:SetSetting("_preElvui_bgTransparency", DB:GetSetting("bgTransparency"))
         DB:SetSetting("hideBorders", true)
-        DB:SetSetting("bgTransparency", Guda.Constants.PFUI_DEFAULT_BG_TRANSPARENCY)
-        -- Default to using pfUI transparency
-        if DB:GetSetting("usePfUITransparency") == nil then
-            DB:SetSetting("usePfUITransparency", true)
+        DB:SetSetting("bgTransparency", Guda.Constants.ELVUI_DEFAULT_BG_TRANSPARENCY)
+        -- Default to using ElvUI transparency
+        if DB:GetSetting("useElvUITransparency") == nil then
+            DB:SetSetting("useElvUITransparency", true)
         end
     end
 
@@ -1786,7 +1786,7 @@ function Guda_SettingsPopup_ApplyTheme(themeId)
     -- Update dropdown text
     local dropdown = getglobal("Guda_SettingsPopup_ThemeDropdown")
     if dropdown then
-        local names = { guda = "Guda", blizzard = "Blizzard", pfui = "pfUI" }
+        local names = { guda = "Guda", blizzard = "Blizzard", elvui = "ElvUI" }
         UIDropDownMenu_SetSelectedValue(dropdown, themeId)
         UIDropDownMenu_SetText(dropdown, names[themeId] or themeId)
     end
@@ -1807,16 +1807,16 @@ function Guda_SettingsPopup_ApplyTheme(themeId)
         bgTransparencySlider:SetValue(DB:GetSetting("bgTransparency") or 0.15)
     end
 
-    -- Show/hide pfUI transparency checkbox based on theme
-    local pfuiTranspCB = getglobal("Guda_SettingsPopup_UsePfUITransparencyCheckbox")
-    if pfuiTranspCB then
-        if themeId == "pfui" then
-            local val = DB:GetSetting("usePfUITransparency")
+    -- Show/hide ElvUI transparency checkbox based on theme
+    local elvuiTranspCB = getglobal("Guda_SettingsPopup_UseElvUITransparencyCheckbox")
+    if elvuiTranspCB then
+        if themeId == "elvui" then
+            local val = DB:GetSetting("useElvUITransparency")
             if val == nil then val = true end
-            pfuiTranspCB:SetChecked(val and 1 or 0)
-            pfuiTranspCB:Show()
+            elvuiTranspCB:SetChecked(val and 1 or 0)
+            elvuiTranspCB:Show()
         else
-            pfuiTranspCB:Hide()
+            elvuiTranspCB:Hide()
         end
     end
 end

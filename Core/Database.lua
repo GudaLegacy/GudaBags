@@ -160,16 +160,39 @@ function DB:Initialize()
 		Guda_CharDB.settings.autoOpenClams = false
 	end
 
-	-- Auto-detect pfUI on first load (theme not yet set)
+	-- Auto-detect ElvUI on first load (theme not yet set)
 	if Guda_CharDB.settings.theme == nil then
-		if pfUI then
-			Guda_CharDB.settings.theme = "pfui"
+		if ElvUI and ElvUI[1] then
+			Guda_CharDB.settings.theme = "elvui"
 			Guda_CharDB.settings.hideBorders = true
-			Guda_CharDB.settings.bgTransparency = Guda.Constants.PFUI_DEFAULT_BG_TRANSPARENCY
-			Guda_CharDB.settings.usePfUITransparency = true
+			Guda_CharDB.settings.bgTransparency = Guda.Constants.ELVUI_DEFAULT_BG_TRANSPARENCY
+			Guda_CharDB.settings.useElvUITransparency = true
 			Guda_CharDB.settings.iconSpacing = 8
 		end
 	end
+
+	-- Migrate pre-ElvUI saves: anyone with theme="pfui" gets auto-promoted.
+	-- pfUI doesn't run on 3.3.5a in this install, so the old setting is dead
+	-- weight. The pre-theme hide/transparency snapshot keys are migrated too
+	-- so users mid-toggle don't lose their pre-theme settings.
+	if Guda_CharDB.settings.theme == "pfui" then
+		Guda_CharDB.settings.theme = "elvui"
+	end
+	if Guda_CharDB.settings.usePfUITransparency ~= nil
+	   and Guda_CharDB.settings.useElvUITransparency == nil then
+		Guda_CharDB.settings.useElvUITransparency = Guda_CharDB.settings.usePfUITransparency
+	end
+	Guda_CharDB.settings.usePfUITransparency = nil
+	if Guda_CharDB.settings._prePfui_hideBorders ~= nil
+	   and Guda_CharDB.settings._preElvui_hideBorders == nil then
+		Guda_CharDB.settings._preElvui_hideBorders = Guda_CharDB.settings._prePfui_hideBorders
+	end
+	if Guda_CharDB.settings._prePfui_bgTransparency ~= nil
+	   and Guda_CharDB.settings._preElvui_bgTransparency == nil then
+		Guda_CharDB.settings._preElvui_bgTransparency = Guda_CharDB.settings._prePfui_bgTransparency
+	end
+	Guda_CharDB.settings._prePfui_hideBorders = nil
+	Guda_CharDB.settings._prePfui_bgTransparency = nil
 
 	-- Initialize locked items storage
 	if not Guda_CharDB.lockedItems then
