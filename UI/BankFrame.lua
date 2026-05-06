@@ -2677,7 +2677,7 @@ function Guda_BankBagSlot_OnEnter(button, bagID)
     if bagID == -1 then
         -- Main bank bag tooltip
         GameTooltip:SetText(Guda_L["Bank"], 1.0, 1.0, 1.0)
-        local numSlots = 24
+        local numSlots = addon.Modules.Utils:GetBagSlotCount(bagID)
         GameTooltip:AddLine(string.format(Guda_L["%d Slots"], numSlots), 0.8, 0.8, 0.8)
         if hiddenBankBags[bagID] then
             GameTooltip:AddLine("(Hidden - Right-Click to show)", 0.8, 0.5, 0.5)

@@ -982,8 +982,15 @@ end
 -- Get bag slot count
 function Utils:GetBagSlotCount(bagID)
     if bagID == -1 then
-        -- Bank has 24 slots in vanilla
-        return 24
+        -- Bank main container: query native API. Falls back to the WotLK
+        -- default (NUM_BANKGENERIC_SLOTS = 28) when the bank is closed and
+        -- the API returns 0. Previously hardcoded to the vanilla value 24,
+        -- which hid items in slots 25-28 on 3.3.5a.
+        local n = GetContainerNumSlots(-1)
+        if not n or n == 0 then
+            n = NUM_BANKGENERIC_SLOTS or 28
+        end
+        return n
     elseif bagID == -2 then
         -- Keyring - vanilla WoW has 12-32 slots depending on version
         local slots = GetContainerNumSlots(bagID)
