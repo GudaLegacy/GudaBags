@@ -2277,7 +2277,7 @@ end
 -- unconditional SETGLOBAL in Lua, which taints the Blizzard-owned table and
 -- breaks popup-confirmed protected actions like REPLACE_ENCHANT / DELETE_GOOD_ITEM).
 StaticPopupDialogs["GUDA_RESET_CATEGORIES"] = {
-    text = Guda_L["Reset all categories and rules to defaults? Your customizations will be lost."]
+    text = (Guda_L and Guda_L["Reset all categories and rules to defaults? Your customizations will be lost."])
         or "Reset all categories and rules to defaults? Your customizations will be lost.",
     button1 = ACCEPT or "Accept",
     button2 = CANCEL or "Cancel",
