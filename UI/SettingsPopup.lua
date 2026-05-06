@@ -378,7 +378,7 @@ function Guda_SettingsPopup_OnShow(self)
     local themeDropdown = getglobal("Guda_SettingsPopup_ThemeDropdown")
     if themeDropdown then
         local currentTheme = Guda.Modules.DB:GetSetting("theme") or "guda"
-        local names = { guda = "Guda", blizzard = "Blizzard" }
+        local names = { guda = "Guda", blizzard = "Blizzard", elvui = "ElvUI" }
         UIDropDownMenu_SetSelectedValue(themeDropdown, currentTheme)
         UIDropDownMenu_SetText(themeDropdown, names[currentTheme] or currentTheme)
     end
