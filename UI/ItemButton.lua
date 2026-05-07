@@ -2554,7 +2554,11 @@ function Guda_ItemButton_OnEnter(self)
 
     -- Drop-target placeholder: simple tooltip, skip the normal item tooltip path.
     if self.isDropTarget then
-        GameTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+        -- Own by the button (not UIParent) so TipTac's CURSOR_UPDATE handler,
+        -- which hides any tooltip owned by UIParent without a unit, doesn't
+        -- nuke this tooltip when ShowContainerSellCursor fires CURSOR_UPDATE
+        -- during a vendor session.
+        GameTooltip:SetOwner(self, "ANCHOR_NONE")
         GameTooltip:ClearAllPoints()
         GameTooltip:SetPoint("BOTTOMRIGHT", self, "TOPLEFT", 10, 0)
         local catName = self.dropTargetCategoryId or ""
@@ -2614,13 +2618,19 @@ function Guda_ItemButton_OnEnter(self)
 		pfuiCursorMode = true
 	end
 
-	-- Set tooltip owner and position
+	-- Set tooltip owner and position. Owning by the button (rather than
+	-- UIParent) matches Blizzard's ContainerFrameItemButton_OnEnter pattern
+	-- and is required for TipTac compatibility: TipTac's CURSOR_UPDATE
+	-- handler (cfg.hideWorldTips, default true) hides any tooltip that is
+	-- owned by UIParent and has no unit, which would otherwise nuke our bag
+	-- tooltip the instant ShowContainerSellCursor fires CURSOR_UPDATE while
+	-- a vendor is open.
 	if pfuiCursorMode then
 		-- For pfUI cursor mode, use ANCHOR_CURSOR like pfUI does
-		GameTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
+		GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
 	else
 		-- Standard positioning relative to item button
-		GameTooltip:SetOwner(UIParent, "ANCHOR_NONE")
+		GameTooltip:SetOwner(self, "ANCHOR_NONE")
 		GameTooltip:ClearAllPoints()
 		GameTooltip:SetPoint("BOTTOMRIGHT", self, "TOPLEFT", 10, 0)
 	end

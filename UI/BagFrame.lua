@@ -4665,6 +4665,67 @@ function BagFrame:Initialize()
 	addon.Modules.Events:Register("AUCTION_HOUSE_SHOW", AutoOpenBags, "BagFrame")
 	addon.Modules.Events:Register("TRADE_SHOW", AutoOpenBags, "BagFrame")
 
+	-- Auto-vendor-junk loop state. Hoisted so the OnUpdate ticker frame is
+	-- created once and reused across every MERCHANT_SHOW (the previous version
+	-- CreateFrame'd a fresh one per visit, leaking it). Throttled to one sell
+	-- every AUTO_VENDOR_INTERVAL seconds so the bag layout settles between
+	-- UseContainerItem calls — running this every frame can move buttons out
+	-- from under a hovered cursor and steal tooltip focus.
+	local AUTO_VENDOR_INTERVAL = 0.15
+	local autoVendorJunk = {}
+	local autoVendorIdx = 0
+	local autoVendorSoldCount = 0
+	local autoVendorElapsed = 0
+	local autoVendorFrame = CreateFrame("Frame")
+
+	local function FinishAutoVendor()
+		autoVendorFrame:SetScript("OnUpdate", nil)
+		if autoVendorSoldCount > 0 then
+			addon:Print(format(Guda_L["Sold %d junk item(s)"], autoVendorSoldCount))
+		end
+		autoVendorSoldCount = 0
+		autoVendorIdx = 0
+		autoVendorElapsed = 0
+		for i = table.getn(autoVendorJunk), 1, -1 do
+			autoVendorJunk[i] = nil
+		end
+	end
+
+	local function AutoVendorOnUpdate()
+		if not isMerchantOpen then
+			FinishAutoVendor()
+			return
+		end
+		autoVendorElapsed = autoVendorElapsed + (arg1 or 0)
+		if autoVendorElapsed < AUTO_VENDOR_INTERVAL then return end
+		autoVendorElapsed = 0
+
+		autoVendorIdx = autoVendorIdx + 1
+		local item = autoVendorJunk[autoVendorIdx]
+		if not item then
+			FinishAutoVendor()
+			return
+		end
+
+		-- Re-verify before selling: slot contents may have changed (we just
+		-- sold a stack), item may have been locked, an itemOverride edited,
+		-- etc. CategorizeItem is result-cached so the lookup is ~free.
+		local Utils = addon.Modules.Utils
+		local DB = addon.Modules.DB
+		local CategoryManager = addon.Modules.CategoryManager
+		local link = GetContainerItemLink(item.bag, item.slot)
+		if link and Utils and DB and CategoryManager then
+			local itemID = Utils:ExtractItemID(link)
+			if itemID and not DB:IsItemProtected(itemID) then
+				local cat = CategoryManager:CategorizeItem({ link = link }, item.bag, item.slot, false)
+				if cat == "Junk" then
+					UseContainerItem(item.bag, item.slot)
+					autoVendorSoldCount = autoVendorSoldCount + 1
+				end
+			end
+		end
+	end
+
 	-- Track vendor interactions to avoid closing bags when a vendor is opened
 	addon.Modules.Events:Register("MERCHANT_SHOW", function()
 		isMerchantOpen = true
@@ -4690,7 +4751,14 @@ function BagFrame:Initialize()
 			local BagScanner = addon.Modules.BagScanner
 			local CategoryManager = addon.Modules.CategoryManager
 
-			local junkItems = {}
+			-- Reset shared state and rebuild junk list in place
+			autoVendorIdx = 0
+			autoVendorSoldCount = 0
+			autoVendorElapsed = 0
+			for i = table.getn(autoVendorJunk), 1, -1 do
+				autoVendorJunk[i] = nil
+			end
+
 			if DB and Utils and BagScanner and CategoryManager
 			   and BagScanner.GetBagData and CategoryManager.CategorizeItem then
 				local bagData = BagScanner:GetBagData()
@@ -4704,7 +4772,7 @@ function BagFrame:Initialize()
 								if itemID and not DB:IsItemProtected(itemID) then
 									local cat = CategoryManager:CategorizeItem(itemData, bag, slot, false)
 									if cat == "Junk" then
-										table.insert(junkItems, { bag = bag, slot = slot })
+										table.insert(autoVendorJunk, { bag = bag, slot = slot })
 									end
 								end
 							end
@@ -4712,43 +4780,8 @@ function BagFrame:Initialize()
 					end
 				end
 			end
-			if table.getn(junkItems) > 0 then
-				local idx = 0
-				local soldCount = 0
-				local sellFrame = CreateFrame("Frame")
-				sellFrame:SetScript("OnUpdate", function()
-					if not isMerchantOpen then
-						this:SetScript("OnUpdate", nil)
-						if soldCount > 0 then
-							addon:Print(format(Guda_L["Sold %d junk item(s)"], soldCount))
-						end
-						return
-					end
-					idx = idx + 1
-					local item = junkItems[idx]
-					if item then
-						-- Re-verify before selling: slot contents may have
-						-- changed (we just sold a stack), item may have been
-						-- locked, an itemOverride edited, etc. CategorizeItem
-						-- is result-cached so the lookup is ~free.
-						local link = GetContainerItemLink(item.bag, item.slot)
-						if link and Utils and DB and CategoryManager then
-							local itemID = Utils:ExtractItemID(link)
-							if itemID and not DB:IsItemProtected(itemID) then
-								local cat = CategoryManager:CategorizeItem({ link = link }, item.bag, item.slot, false)
-								if cat == "Junk" then
-									UseContainerItem(item.bag, item.slot)
-									soldCount = soldCount + 1
-								end
-							end
-						end
-					else
-						this:SetScript("OnUpdate", nil)
-						if soldCount > 0 then
-							addon:Print(format(Guda_L["Sold %d junk item(s)"], soldCount))
-						end
-					end
-				end)
+			if table.getn(autoVendorJunk) > 0 then
+				autoVendorFrame:SetScript("OnUpdate", AutoVendorOnUpdate)
 			end
 		end
 	end, "BagFrame")
