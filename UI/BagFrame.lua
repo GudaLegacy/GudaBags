@@ -2189,42 +2189,64 @@ end
 
 -- Check if player has Disenchant spell (i.e. has Enchanting profession)
 function BagFrame:HasDisenchant()
+	-- Stash the matched name so the secure button's "spell" attribute uses
+	-- the player's locale string (the spellbook returns localized names; the
+	-- match below is English-only for now, but keeps the door open to a
+	-- locale-fallback list later).
+	self._disenchantSpellName = nil
 	local i = 1
 	while true do
 		local name = GetSpellName(i, BOOKTYPE_SPELL)
 		if not name then break end
-		if name == "Disenchant" then return true end
+		if name == "Disenchant" then
+			self._disenchantSpellName = name
+			return true
+		end
 		i = i + 1
 	end
 	return false
 end
 
 -- Create disenchant button in footer
+--
+-- Inherits SecureActionButtonTemplate so Blizzard's secure click engine can
+-- dispatch the Disenchant cast — calling CastSpellByName from a non-secure
+-- OnClick triggers the ADDON_ACTION_BLOCKED popup. The button is parented to
+-- Guda_HearthstoneAnchor (a UIParent-rooted Frame created by
+-- CreateHearthstoneFrame) rather than into the main Guda_BagFrame tree, per
+-- RULES.md Rule 3 — secure children must not poison combat operations on the
+-- main bag frame's parent chain. Position is anchored to the hearthstone
+-- secure button itself, which is a sibling within the same anchor.
 function BagFrame:CreateDisenchantFrame()
 	local frameName = "Guda_BagFrame_DisenchantFrame"
 	if getglobal(frameName) then return end
 
-	local toolbar = getglobal("Guda_BagFrame_Toolbar") or Guda_BagFrame
-	local frame = CreateFrame("Button", frameName, toolbar)
+	local anchor = getglobal("Guda_HearthstoneAnchor")
+	local hs = getglobal("Guda_BagFrame_HearthstoneFrame")
+	if not anchor or not hs then
+		-- Hearthstone must be created first (Initialize order). If it's not
+		-- there yet, bail; the next UpdateDisenchant will retry.
+		return
+	end
+
+	local frame = CreateFrame("Button", frameName, anchor, "SecureActionButtonTemplate")
 	frame:SetWidth(20)
 	frame:SetHeight(20)
-	-- Default anchor; will be repositioned by UpdateBaglineLayout
-	local hs = getglobal("Guda_BagFrame_HearthstoneFrame")
-	if hs then
-		frame:SetPoint("LEFT", hs, "RIGHT", 6, 0)
-	else
-		frame:SetPoint("LEFT", toolbar, "LEFT", 0, 0)
-	end
-	frame:SetFrameLevel((toolbar:GetFrameLevel() or 5) + 5)
+	frame:SetPoint("LEFT", hs, "RIGHT", 6, 0)
+	frame:SetFrameLevel(hs:GetFrameLevel())
 
 	-- Icon texture
 	local icon = frame:CreateTexture(frameName .. "_Icon", "ARTWORK")
 	icon:SetAllPoints(frame)
 	icon:SetTexture("Interface\\Icons\\Spell_Holy_RemoveCurse")
 
-	-- Enable mouse and clicks
+	-- Secure dispatch: Blizzard's engine handles CastSpellByName via
+	-- type="spell" + spell=<localized name>. The "spell" attribute is
+	-- (re)written in UpdateDisenchant so we always use the spellbook's
+	-- current localized name.
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("LeftButtonUp")
+	frame:SetAttribute("type", "spell")
 
 	frame:SetScript("OnEnter", function()
 		GameTooltip:SetOwner(this, "ANCHOR_TOP")
@@ -2236,11 +2258,8 @@ function BagFrame:CreateDisenchantFrame()
 	frame:SetScript("OnLeave", function()
 		GameTooltip:Hide()
 	end)
-	frame:SetScript("OnClick", function()
-		CastSpellByName("Disenchant")
-	end)
 
-	addon:Debug("DisenchantFrame created")
+	addon:Debug("DisenchantFrame created (secure)")
 end
 
 -- ============================================================================
@@ -2270,12 +2289,15 @@ function BagFrame:HasThievesTools()
 end
 
 function BagFrame:HasLockpick()
+	self._lockpickSpellIndex = nil
+	self._lockpickSpellName = nil
 	local i = 1
 	while true do
 		local name = GetSpellName(i, BOOKTYPE_SPELL)
 		if not name then break end
 		if name == "Pick Lock" then
 			self._lockpickSpellIndex = i
+			self._lockpickSpellName = name
 			return true
 		end
 		local tex = GetSpellTexture(i, BOOKTYPE_SPELL)
@@ -2286,33 +2308,42 @@ function BagFrame:HasLockpick()
 			or string.find(tl, "ability_rogue_pickpocket", 1, true)
 			or string.find(tl, "inv_misc_key_03", 1, true) then
 				self._lockpickSpellIndex = i
+				self._lockpickSpellName = name
 				return true
 			end
 		end
 		i = i + 1
 	end
-	self._lockpickSpellIndex = nil
 	return false
 end
 
+-- Create lockpick button in footer (rogue only).
+--
+-- Same secure-template story as Disenchant: CastSpell from a non-secure
+-- OnClick is protected and triggers ADDON_ACTION_BLOCKED. Secure dispatch via
+-- type="spell" + spell=<localized name>. The "Thieves' Tools" gate is dropped
+-- — without tools the cast attempt produces Blizzard's standard error tone,
+-- matching every native cast button. Layout is statically anchored to the
+-- Disenchant button (always — we can't dynamically reanchor in combat); when
+-- Disenchant is hidden the only visible effect is a 26px gap, which is
+-- limited to rogues without Enchanting (rare).
 function BagFrame:CreateLockpickFrame()
 	local frameName = "Guda_BagFrame_LockpickFrame"
 	if getglobal(frameName) then return end
 
-	local toolbar = getglobal("Guda_BagFrame_Toolbar") or Guda_BagFrame
-	local frame = CreateFrame("Button", frameName, toolbar)
+	local anchor = getglobal("Guda_HearthstoneAnchor")
+	local de = getglobal("Guda_BagFrame_DisenchantFrame")
+	if not anchor or not de then
+		-- Disenchant must be created first (Initialize order). Bail; the
+		-- next UpdateLockpick will retry.
+		return
+	end
+
+	local frame = CreateFrame("Button", frameName, anchor, "SecureActionButtonTemplate")
 	frame:SetWidth(20)
 	frame:SetHeight(20)
-	-- Default anchor; will be repositioned by UpdateBaglineLayout
-	local de = getglobal("Guda_BagFrame_DisenchantFrame")
-	local hs = getglobal("Guda_BagFrame_HearthstoneFrame")
-	local anchorTo = (de and de:IsShown()) and de or hs
-	if anchorTo then
-		frame:SetPoint("LEFT", anchorTo, "RIGHT", 6, 0)
-	else
-		frame:SetPoint("LEFT", toolbar, "LEFT", 0, 0)
-	end
-	frame:SetFrameLevel((toolbar:GetFrameLevel() or 5) + 5)
+	frame:SetPoint("LEFT", de, "RIGHT", 6, 0)
+	frame:SetFrameLevel(de:GetFrameLevel())
 
 	local icon = frame:CreateTexture(frameName .. "_Icon", "ARTWORK")
 	icon:SetAllPoints(frame)
@@ -2320,6 +2351,7 @@ function BagFrame:CreateLockpickFrame()
 
 	frame:EnableMouse(true)
 	frame:RegisterForClicks("LeftButtonUp")
+	frame:SetAttribute("type", "spell")
 
 	frame:SetScript("OnEnter", function()
 		GameTooltip:SetOwner(this, "ANCHOR_TOP")
@@ -2335,45 +2367,45 @@ function BagFrame:CreateLockpickFrame()
 	frame:SetScript("OnLeave", function()
 		GameTooltip:Hide()
 	end)
-	frame:SetScript("OnClick", function()
-		-- Block click when no Thieves' Tools — the spell would just error.
-		if not BagFrame:HasThievesTools() then return end
-		-- Re-resolve in case spellbook changed since last update
-		if not BagFrame._lockpickSpellIndex then
-			BagFrame:HasLockpick()
-		end
-		if BagFrame._lockpickSpellIndex then
-			CastSpell(BagFrame._lockpickSpellIndex, BOOKTYPE_SPELL)
-		end
-	end)
 
-	addon:Debug("LockpickFrame created")
+	addon:Debug("LockpickFrame created (secure)")
 end
 
 function BagFrame:UpdateLockpick()
 	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
 	local frame = getglobal("Guda_BagFrame_LockpickFrame")
+	local inCombat = InCombatLockdown and InCombatLockdown()
 
 	if hideFooter or not self:HasLockpick() then
-		if frame then frame:Hide() end
+		-- Show/Hide on a secure frame is combat-forbidden; defer to
+		-- PLAYER_REGEN_ENABLED if we're locked down right now.
+		if frame and not inCombat then frame:Hide() end
 		return
 	end
 
 	if not frame then
+		-- Secure-template CreateFrame is forbidden in combat. Initialize
+		-- pre-creates the frame at PLAYER_LOGIN, so this branch only fires
+		-- if Initialize ran while the hearthstone anchor wasn't ready yet
+		-- (defensive); skip and retry next regen cycle.
+		if inCombat then return end
 		self:CreateLockpickFrame()
 		frame = getglobal("Guda_BagFrame_LockpickFrame")
+		if not frame then return end
 	end
 
-	if frame then
+	if not inCombat then
 		frame:Show()
-		-- Dim the icon when Thieves' Tools are missing
-		local icon = getglobal(frame:GetName() .. "_Icon")
-		if icon then
-			if self:HasThievesTools() then
-				icon:SetVertexColor(1, 1, 1)
-			else
-				icon:SetVertexColor(0.4, 0.4, 0.4)
-			end
+		frame:SetAttribute("spell", self._lockpickSpellName)
+	end
+
+	-- Dim the icon when Thieves' Tools are missing (non-secure op, safe in combat)
+	local icon = getglobal(frame:GetName() .. "_Icon")
+	if icon then
+		if self:HasThievesTools() then
+			icon:SetVertexColor(1, 1, 1)
+		else
+			icon:SetVertexColor(0.4, 0.4, 0.4)
 		end
 	end
 end
@@ -2382,19 +2414,23 @@ end
 function BagFrame:UpdateDisenchant()
 	local hideFooter = addon.Modules.DB:GetSetting("hideFooter")
 	local frame = getglobal("Guda_BagFrame_DisenchantFrame")
+	local inCombat = InCombatLockdown and InCombatLockdown()
 
 	if hideFooter or not self:HasDisenchant() then
-		if frame then frame:Hide() end
+		if frame and not inCombat then frame:Hide() end
 		return
 	end
 
 	if not frame then
+		if inCombat then return end
 		self:CreateDisenchantFrame()
 		frame = getglobal("Guda_BagFrame_DisenchantFrame")
+		if not frame then return end
 	end
 
-	if frame then
+	if not inCombat then
 		frame:Show()
+		frame:SetAttribute("spell", self._disenchantSpellName)
 	end
 end
 
@@ -4458,9 +4494,18 @@ function BagFrame:Initialize()
 	-- be out of combat. Same reason: the SecureActionButtonTemplate it
 	-- inherits can't be CreateFrame'd during combat, and deferring to the
 	-- first UpdateHearthstone call (which may happen mid-fight when bags
-	-- open) would fail.
+	-- open) would fail. Disenchant + Lockpick share the same anchor and the
+	-- same secure-template constraint, so pre-create them right after — they
+	-- depend on Guda_HearthstoneAnchor existing, which CreateHearthstoneFrame
+	-- has just guaranteed.
 	if self.CreateHearthstoneFrame then
 		self:CreateHearthstoneFrame()
+	end
+	if self.CreateDisenchantFrame then
+		self:CreateDisenchantFrame()
+	end
+	if self.CreateLockpickFrame then
+		self:CreateLockpickFrame()
 	end
 
 	-- Re-hook when character frame is opened (for safety)
@@ -4818,6 +4863,11 @@ function BagFrame:Initialize()
 		if BagFrame.UpdateHearthstoneAnchorPosition then
 			BagFrame:UpdateHearthstoneAnchorPosition()
 		end
+		-- Disenchant / Lockpick are also secure buttons; their visibility
+		-- toggles and SetAttribute writes are deferred while in combat. Run
+		-- them now that we're out so any pending state catches up.
+		if BagFrame.UpdateDisenchant then BagFrame:UpdateDisenchant() end
+		if BagFrame.UpdateLockpick then BagFrame:UpdateLockpick() end
 	end, "BagFrame")
 
 	-- Hide character dropdown when clicking on bag frame
