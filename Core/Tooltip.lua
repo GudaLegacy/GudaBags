@@ -384,9 +384,8 @@ function Tooltip:AddInventoryInfo(tooltip, link)
 			tooltip:AddDoubleLine(displayName, countText, r, g, b, 1.0, 1.0, 1.0)
 		end
 
-		-- Bottom padding below the Inventory block (~10-12px visually)
-		--tooltip:AddLine(" ")
-
+		-- Recompute layout to fit the lines we just added.
+		tooltip:Show()
 	end
 end
 
@@ -399,126 +398,76 @@ function Tooltip:Initialize()
 	-- of the tooltip (after the vendor sell-price line, when one is present),
 	-- matching upstream GudaBags' tooltip ordering.
 
-	-- Helper: install a hooksecurefunc only if the target method actually
-	-- exists on this client. SetCraftItem was removed in patch 3.0.2 when the
-	-- standalone Crafts UI was folded into TradeSkill, so it's absent on
-	-- 3.3.5a. Other setters can also be patched out by individual servers
-	-- (Ascension Epoch removes/renames a few), so guard every hook.
-	local function HookIfExists(target, method, fn)
-		if target and target[method] then
-			hooksecurefunc(target, method, fn)
-		end
+	-- Hook a tooltip setter and inject the inventory block via the supplied
+	-- link-getter. Skips silently if the method is absent on this client
+	-- (e.g. SetCraftItem was removed in patch 3.0.2 — the Crafts UI was
+	-- folded into TradeSkill — so it doesn't exist on 3.3.5a). AddInventoryInfo
+	-- handles its own :Show() once it's actually appended lines.
+	local function HookLink(target, method, getLink)
+		if not target or not target[method] then return end
+		hooksecurefunc(target, method, function(self, ...)
+			local link = getLink(...)
+			if link then
+				Tooltip:AddInventoryInfo(self, link)
+			end
+		end)
 	end
 
-	HookIfExists(GameTooltip, "SetBagItem", function(self, bag, slot)
+	HookLink(GameTooltip, "SetBagItem", function(bag, slot)
 		local link = GetContainerItemLink(bag, slot)
-		if not link then
-			-- Bank main bag (-1) reports through inventory slots, not container slots
-			local bankFrame = getglobal("BankFrame")
-			if bag == -1 and bankFrame and bankFrame:IsVisible() then
-				local invSlot = BankButtonIDToInvSlotID(slot)
-				if invSlot then
-					link = GetInventoryItemLink("player", invSlot)
-				end
-			end
-		end
-		if link then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
+		if link then return link end
+		-- Bank main bag (-1) reports through inventory slots, not container slots
+		local bankFrame = getglobal("BankFrame")
+		if bag == -1 and bankFrame and bankFrame:IsVisible() then
+			local invSlot = BankButtonIDToInvSlotID(slot)
+			if invSlot then return GetInventoryItemLink("player", invSlot) end
 		end
 	end)
 
-	HookIfExists(GameTooltip, "SetHyperlink", function(self, link)
+	HookLink(GameTooltip, "SetHyperlink", function(link)
 		if not link then return end
 		-- Some callers pass the visible "|H...|h" form; extract the inner item link.
 		local _, _, inner = string.find(link, "|H(.+)|h")
 		local itemLink = inner or link
-		if strfind(itemLink, "item:") then
-			Tooltip:AddInventoryInfo(self, itemLink)
-			self:Show()
-		end
+		if strfind(itemLink, "item:") then return itemLink end
 	end)
 
-	HookIfExists(GameTooltip, "SetInventoryItem", function(self, unit, slot)
-		local link = GetInventoryItemLink(unit, slot)
-		if link then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
-		end
+	HookLink(GameTooltip, "SetInventoryItem", function(unit, slot)
+		return GetInventoryItemLink(unit, slot)
 	end)
 
-	HookIfExists(GameTooltip, "SetLootItem", function(self, slot)
-		local link = GetLootSlotLink(slot)
-		if link then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
-		end
+	HookLink(GameTooltip, "SetLootItem", function(slot)
+		return GetLootSlotLink(slot)
 	end)
 
-	HookIfExists(GameTooltip, "SetQuestItem", function(self, itemType, index)
-		local link = GetQuestItemLink(itemType, index)
-		if link then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
-		end
+	HookLink(GameTooltip, "SetQuestItem", function(itemType, index)
+		return GetQuestItemLink(itemType, index)
 	end)
 
-	HookIfExists(GameTooltip, "SetMerchantItem", function(self, index)
-		local link = GetMerchantItemLink(index)
-		if link then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
-		end
+	HookLink(GameTooltip, "SetMerchantItem", function(index)
+		return GetMerchantItemLink(index)
 	end)
 
-	HookIfExists(GameTooltip, "SetAuctionItem", function(self, auctionType, index)
-		local link = GetAuctionItemLink(auctionType, index)
-		if link then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
-		end
+	HookLink(GameTooltip, "SetAuctionItem", function(auctionType, index)
+		return GetAuctionItemLink(auctionType, index)
 	end)
 
-	HookIfExists(GameTooltip, "SetInboxItem", function(self, index, itemIndex)
-		local link = addon.Modules.Utils and addon.Modules.Utils:GetInboxItemLink(index, itemIndex)
-		if link then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
-		end
+	HookLink(GameTooltip, "SetInboxItem", function(index, itemIndex)
+		return addon.Modules.Utils and addon.Modules.Utils:GetInboxItemLink(index, itemIndex)
 	end)
 
-	HookIfExists(GameTooltip, "SetTradeSkillItem", function(self, skillIndex, reagentIndex)
-		local link
-		if reagentIndex then
-			link = GetTradeSkillReagentItemLink(skillIndex, reagentIndex)
-		else
-			link = GetTradeSkillItemLink(skillIndex)
-		end
-		if link then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
-		end
+	HookLink(GameTooltip, "SetTradeSkillItem", function(skillIndex, reagentIndex)
+		if reagentIndex then return GetTradeSkillReagentItemLink(skillIndex, reagentIndex) end
+		return GetTradeSkillItemLink(skillIndex)
 	end)
 
-	-- SetCraftItem: present on pre-3.0 clients only; absent on 3.3.5a.
-	HookIfExists(GameTooltip, "SetCraftItem", function(self, skillIndex, reagentIndex)
-		local link
-		if reagentIndex then
-			link = GetCraftReagentItemLink(skillIndex, reagentIndex)
-		else
-			link = GetCraftItemLink(skillIndex)
-		end
-		if link then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
-		end
+	HookLink(GameTooltip, "SetCraftItem", function(skillIndex, reagentIndex)
+		if reagentIndex then return GetCraftReagentItemLink(skillIndex, reagentIndex) end
+		return GetCraftItemLink(skillIndex)
 	end)
 
-	HookIfExists(ItemRefTooltip, "SetHyperlink", function(self, link)
-		if link and strfind(link, "item:") then
-			Tooltip:AddInventoryInfo(self, link)
-			self:Show()
-		end
+	HookLink(ItemRefTooltip, "SetHyperlink", function(link)
+		if link and strfind(link, "item:") then return link end
 	end)
 
 	-- Clear cache function

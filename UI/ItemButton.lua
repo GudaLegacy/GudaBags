@@ -2608,8 +2608,10 @@ function Guda_ItemButton_OnEnter(self)
 	end
 
 	-- Track the hovered Guda button so the shift watcher can re-fire OnEnter
-	-- when modifier state changes. GetOwner() returns UIParent because we
-	-- SetOwner(UIParent, ANCHOR_NONE) + SetPoint below.
+	-- when modifier state changes. We can't use GameTooltip:GetOwner() for
+	-- this — even though we now SetOwner(self), the shift watcher needs the
+	-- specific Guda button reference (Blizzard sets the owner to other
+	-- frames during item comparisons), so we cache it on the tooltip itself.
 	GameTooltip.gudaOwner = self
 
 	-- Check if pfUI cursor tooltip mode is active
@@ -2844,8 +2846,8 @@ end
 -- Our OnEnter replaces Blizzard's inherited handler and doesn't set
 -- self.updateTooltip, so the template's inherited OnUpdate never re-fires.
 -- We track the hovered button via GameTooltip.gudaOwner (set in OnEnter /
--- cleared in OnLeave) because GameTooltip:GetOwner() returns UIParent — our
--- OnEnter uses SetOwner(UIParent, ANCHOR_NONE) + SetPoint for positioning.
+-- cleared in OnLeave); GameTooltip:GetOwner() isn't reliable here because
+-- Blizzard reassigns the owner during shopping-tooltip comparisons.
 local shiftLastDown = false
 local shiftWatcher = CreateFrame("Frame")
 shiftWatcher:RegisterEvent("MODIFIER_STATE_CHANGED")

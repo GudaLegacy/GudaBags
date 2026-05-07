@@ -4678,16 +4678,13 @@ function BagFrame:Initialize()
 	local autoVendorElapsed = 0
 	local autoVendorFrame = CreateFrame("Frame")
 
+	-- Stop the ticker and report how many we sold. Counters are zeroed by
+	-- the next MERCHANT_SHOW before a new run starts; leaving stale data in
+	-- autoVendorJunk between runs is harmless because we rebuild it then.
 	local function FinishAutoVendor()
 		autoVendorFrame:SetScript("OnUpdate", nil)
 		if autoVendorSoldCount > 0 then
 			addon:Print(format(Guda_L["Sold %d junk item(s)"], autoVendorSoldCount))
-		end
-		autoVendorSoldCount = 0
-		autoVendorIdx = 0
-		autoVendorElapsed = 0
-		for i = table.getn(autoVendorJunk), 1, -1 do
-			autoVendorJunk[i] = nil
 		end
 	end
 
