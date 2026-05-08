@@ -9,6 +9,17 @@ local _characterCounts = {}
 local _breakdownParts = {}
 local _charParts = {}
 
+-- Per-tooltip de-dupe stamp, mirrors upstream Anniversary GudaBags' pattern.
+-- The Inventory section append is multi-sourced — the OnTooltipSetItem
+-- HookScript fires for most item setters, AND the per-setter hooksecurefunc
+-- catches the Set* fallbacks (auction / tradeskill — OnTooltipSetItem doesn't
+-- fire for those on 3.3.5a). Without de-dupe a single hover over a merchant
+-- or bag item appends Inventory twice. We stamp `_gudaInventoryAdded = true`
+-- on the specific tooltip after the first append; OnTooltipCleared (fired by
+-- ClearLines / Hide / the next Set* call) clears the stamp so the next pass
+-- can render. Per-tooltip avoids GameTooltip blocking ItemRefTooltip and
+-- vice versa.
+
 --=============================================================================
 -- Item Counting Helper Functions (extracted for clarity and reuse)
 --=============================================================================
@@ -236,6 +247,11 @@ local function GetClassColor(classToken)
 end
 
 function Tooltip:AddInventoryInfo(tooltip, link)
+	-- Per-tooltip de-dupe within a single pass; OnTooltipCleared clears the stamp.
+	if not tooltip then return end
+	if tooltip._gudaInventoryAdded then return end
+	tooltip._gudaInventoryAdded = true
+
 -- Check if the setting is enabled
 	if not addon.Modules.DB:GetSetting("showTooltipCounts") then
 		return
@@ -403,9 +419,17 @@ function Tooltip:Initialize()
 	-- (e.g. SetCraftItem was removed in patch 3.0.2 — the Crafts UI was
 	-- folded into TradeSkill — so it doesn't exist on 3.3.5a). AddInventoryInfo
 	-- handles its own :Show() once it's actually appended lines.
+	--
+	-- The `tooltip:NumLines() > 1` guard prevents the bank-view tooltip race
+	-- where Blizzard's setter clears the tooltip and adds nothing (e.g. an
+	-- inherited ContainerFrameItemButton_OnUpdate refire on a bank slot when
+	-- the Blizzard BankFrame is hidden — we hide it via HideBlizzardBank), but
+	-- our getLink still returns the BagScanner-cached link → tooltip would
+	-- end up containing only the Inventory section with no item header.
 	local function HookLink(target, method, getLink)
 		if not target or not target[method] then return end
 		hooksecurefunc(target, method, function(self, ...)
+			if not self or not self.NumLines or (self:NumLines() or 0) < 1 then return end
 			local link = getLink(...)
 			if link then
 				Tooltip:AddInventoryInfo(self, link)
@@ -413,28 +437,38 @@ function Tooltip:Initialize()
 		end)
 	end
 
-	HookLink(GameTooltip, "SetBagItem", function(bag, slot)
-		local link = GetContainerItemLink(bag, slot)
-		if link then return link end
-		-- Bank main bag (-1) reports through inventory slots, not container slots
-		local bankFrame = getglobal("BankFrame")
-		if bag == -1 and bankFrame and bankFrame:IsVisible() then
-			local invSlot = BankButtonIDToInvSlotID(slot)
-			if invSlot then return GetInventoryItemLink("player", invSlot) end
-		end
-	end)
+	-- For the in-bag setters (SetBagItem, SetInventoryItem, SetHyperlink) use
+	-- OnTooltipSetItem instead of per-setter post-hooks. OnTooltipSetItem only
+	-- fires when Blizzard actually populated an item, eliminating the
+	-- "setter cleared but our getLink returned a stale link" race entirely
+	-- (matches the upstream Anniversary GudaBags pattern for Classic/TBC).
+	-- We pull the link Blizzard *actually used* via tooltip:GetItem() rather
+	-- than re-querying the bag API.
+	if GameTooltip.HookScript and GameTooltip.GetItem then
+		GameTooltip:HookScript("OnTooltipSetItem", function()
+			local tip = this or GameTooltip
+			local _, link = tip:GetItem()
+			if link then
+				Tooltip:AddInventoryInfo(tip, link)
+			end
+		end)
+	end
 
-	HookLink(GameTooltip, "SetHyperlink", function(link)
-		if not link then return end
-		-- Some callers pass the visible "|H...|h" form; extract the inner item link.
-		local _, _, inner = string.find(link, "|H(.+)|h")
-		local itemLink = inner or link
-		if strfind(itemLink, "item:") then return itemLink end
-	end)
-
-	HookLink(GameTooltip, "SetInventoryItem", function(unit, slot)
-		return GetInventoryItemLink(unit, slot)
-	end)
+	-- Clear the per-tooltip de-dupe stamp on each tooltip-cleared event so the
+	-- next pass can render. Set* calls invoke ClearLines internally; Hide also
+	-- triggers OnTooltipCleared.
+	if GameTooltip.HookScript then
+		GameTooltip:HookScript("OnTooltipCleared", function()
+			local tip = this or GameTooltip
+			tip._gudaInventoryAdded = nil
+		end)
+	end
+	if ItemRefTooltip and ItemRefTooltip.HookScript then
+		ItemRefTooltip:HookScript("OnTooltipCleared", function()
+			local tip = this or ItemRefTooltip
+			tip._gudaInventoryAdded = nil
+		end)
+	end
 
 	HookLink(GameTooltip, "SetLootItem", function(slot)
 		return GetLootSlotLink(slot)

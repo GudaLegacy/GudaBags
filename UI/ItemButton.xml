@@ -68,6 +68,26 @@
                 if ContainerFrameItemButton_OnLoad then
                     ContainerFrameItemButton_OnLoad(this)
                 end
+                -- Neutralize Blizzard's tooltip auto-refresh on this client.
+                -- ContainerFrameItemButton_OnUpdate keeps re-firing
+                -- ContainerFrameItemButton_OnEnter every TOOLTIP_UPDATE_TIME,
+                -- which re-anchors the tooltip to ANCHOR_LEFT/RIGHT
+                -- (visible "tooltip jumps -5/-10px" effect on bags) and
+                -- calls SetBagItem; for bank slots that call returns false
+                -- while Blizzard's BankFrame is hidden (we hide it via
+                -- HideBlizzardBank), and the OnEnter then GameTooltip:Hide()s
+                -- the tooltip we just populated.
+                --
+                -- Three guards (any one would suffice; we apply all three
+                -- because Ascension Epoch's modified ContainerFrame.lua may
+                -- have stripped the standard `if not updateTooltip` check
+                -- and another addon may re-attach OnUpdate behind us):
+                --   1. SetScript OnUpdate nil  — kills the poll script
+                --   2. updateTooltip = nil     — disables the standard guard
+                --   3. UpdateTooltip = noop    — neuters direct method calls
+                this:SetScript("OnUpdate", nil)
+                this.updateTooltip = nil
+                this.UpdateTooltip = function() end
             </OnLoad>
             <OnEnter>
                 Guda_ItemButton_OnEnter(this)

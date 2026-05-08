@@ -2552,6 +2552,13 @@ end
 function Guda_ItemButton_OnEnter(self)
     addon:Debug("OnEnter FIRED: button=%s CursorHasItem=%s", tostring(self:GetName()), tostring(CursorHasItem and CursorHasItem()))
 
+    -- Belt-and-suspenders: even though OnLoad nils OnUpdate / updateTooltip /
+    -- UpdateTooltip, defensively clear updateTooltip on every OnEnter in case
+    -- some external code path (Blizzard's own re-entrance or another addon)
+    -- restored it. If updateTooltip stays nil, the inherited
+    -- ContainerFrameItemButton_OnUpdate body bails on its first guard.
+    self.updateTooltip = nil
+
     -- Drop-target placeholder: simple tooltip, skip the normal item tooltip path.
     if self.isDropTarget then
         -- Own by the button (not UIParent) so TipTac's CURSOR_UPDATE handler,
@@ -2843,11 +2850,12 @@ end
 
 -- Refresh tooltip when SHIFT state toggles during hover, so the compare-item
 -- tooltip attaches/detaches without the user having to re-enter the button.
--- Our OnEnter replaces Blizzard's inherited handler and doesn't set
--- self.updateTooltip, so the template's inherited OnUpdate never re-fires.
--- We track the hovered button via GameTooltip.gudaOwner (set in OnEnter /
--- cleared in OnLeave); GameTooltip:GetOwner() isn't reliable here because
--- Blizzard reassigns the owner during shopping-tooltip comparisons.
+-- Our OnEnter replaces Blizzard's inherited handler, and the template's
+-- inherited OnUpdate is neutralized in ItemButton.xml's OnLoad — so we are
+-- the sole driver of tooltip refreshes for Guda buttons. We track the
+-- hovered button via GameTooltip.gudaOwner (set in OnEnter / cleared in
+-- OnLeave); GameTooltip:GetOwner() isn't reliable here because Blizzard
+-- reassigns the owner during shopping-tooltip comparisons.
 local shiftLastDown = false
 local shiftWatcher = CreateFrame("Frame")
 shiftWatcher:RegisterEvent("MODIFIER_STATE_CHANGED")
