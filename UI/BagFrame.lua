@@ -214,6 +214,18 @@ end
 
 -- OnShow
 function Guda_BagFrame_OnShow(self)
+	-- Spurious OnShow filter. Our intended shows go through the alpha-visibility
+	-- override (BagFrame:Initialize > InstallAlphaVisibility) which sets
+	-- alpha=1 BEFORE calling this function. If alpha is still 0 here, OnShow
+	-- was fired by a path that bypassed the Lua override — most commonly
+	-- Blizzard's SetUIPanel via the secure-handler chain when a fullscreen
+	-- panel like WorldMapFrame opens. Stack confirmed via debugstack:
+	--   [C] 'Show' <- UIParent.lua SetUIPanel <- HideUIPanel <- SetAttribute (M binding).
+	-- Bail before we touch the hearthstone anchor or fire any other side effects.
+	if self and self.GetAlpha and self:GetAlpha() and self:GetAlpha() < 0.5 then
+		return
+	end
+
 	-- Play bag open sound
 	PlaySound("igBackPackOpen")
 
@@ -4939,6 +4951,14 @@ function BagFrame:Initialize()
 		origShow(f)
 		f:SetAlpha(0)
 		f:EnableMouse(false)
+		-- OnShow turned the hearthstone anchor visible (SetHearthstoneAnchorVisible(true)
+		-- inside Guda_BagFrame_OnShow) — but we just faded the bag itself
+		-- back out, so the anchor needs to follow. Without this, the
+		-- hearthstone / disenchant / lockpick footer buttons stay visible
+		-- on screen with no bag behind them until the user toggles bags.
+		if BagFrame.SetHearthstoneAnchorVisible then
+			BagFrame:SetHearthstoneAnchorVisible(false)
+		end
 
 		-- After this point, the frame is structurally shown forever. All
 		-- visibility toggles flow through SetAlpha.
