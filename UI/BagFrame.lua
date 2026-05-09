@@ -3731,11 +3731,16 @@ local function HookDefaultBags()
 		end
 	end
 
-	-- Override OpenAllBags (if it exists)
+	-- Override OpenAllBags (if it exists). Standard Blizzard semantics for
+	-- this is "open every container" (separate ContainerFrame1-5), but
+	-- GudaBags presents a single unified bag UI — so the only sensible
+	-- behavior for the Shift+B keybind (the default OPENALLBAGS binding) is
+	-- to toggle our one frame. Without this, pressing Shift+B a second time
+	-- does nothing because Show on an already-shown frame is a no-op.
 	if OpenAllBags then
 		local originalOpenAllBags = OpenAllBags
 		function OpenAllBags()
-			Guda_BagFrame:Show()
+			BagFrame:Toggle()
 
 			-- Force disable pfUI bags if enabled
 			if pfUI and pfUI.bag and pfUI.bag.right and pfUI.bag.right.Hide then
