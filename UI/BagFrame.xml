@@ -84,6 +84,7 @@
                         Guda_OpenSettings()
                     </OnClick>
                     <OnEnter>
+                        if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
                         GameTooltip:SetOwner(this, "ANCHOR_TOP")
                         GameTooltip:SetText(Guda_L["Settings"])
                         GameTooltip:Show()
@@ -132,6 +133,7 @@
                         Guda_BagFrame_Sort()
                     </OnClick>
                     <OnEnter>
+                        if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
                         GameTooltip:SetOwner(this, "ANCHOR_TOP")
                         if this.isCategoryView then
                             GameTooltip:SetText("Restack and Clean")
@@ -187,6 +189,7 @@
                         end
                     </OnClick>
                     <OnEnter>
+                        if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
                         GameTooltip:SetOwner(this, "ANCHOR_TOP")
                         GameTooltip:SetText(Guda_L and Guda_L["Search"] or "Search")
                         GameTooltip:Show()
@@ -234,6 +237,7 @@
                         Guda_BagFrame_ToggleCharacterDropdown(this)
                     </OnClick>
                     <OnEnter>
+                        if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
                         GameTooltip:SetOwner(this, "ANCHOR_TOP")
                         GameTooltip:SetText(Guda_L["My Characters"])
                         GameTooltip:Show()
@@ -281,6 +285,7 @@
                         Guda_BagFrame_ToggleBankDropdown(this)
                     </OnClick>
                     <OnEnter>
+                        if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
                         GameTooltip:SetOwner(this, "ANCHOR_TOP")
                         GameTooltip:SetText(Guda_L["View Bank"])
                         GameTooltip:Show()
@@ -327,6 +332,7 @@
                         Guda_BagFrame_ToggleMailDropdown(this)
                     </OnClick>
                     <OnEnter>
+                        if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
                         GameTooltip:SetOwner(this, "ANCHOR_TOP")
                         GameTooltip:SetText(Guda_L["View Mailbox"])
                         GameTooltip:Show()
@@ -657,6 +663,7 @@
                                 Guda_BagFrame_ToggleSoulBag()
                             </OnClick>
                             <OnEnter>
+                                if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
                                 GameTooltip:SetOwner(this, "ANCHOR_TOP")
                                 GameTooltip:SetText("Soul Bag", 1.0, 1.0, 1.0)
                                 local count = this.soulShardCount or 0

@@ -2550,6 +2550,14 @@ end
 
 -- OnEnter handler (show tooltip)
 function Guda_ItemButton_OnEnter(self)
+    -- Guda_BagFrame uses an alpha-based hide (UI/BagFrame.lua:4942-4996) that
+    -- leaves children structurally shown, so blind hovers over item positions
+    -- still fire OnEnter when bags are "closed". Bank/mailbox use real Hide()
+    -- and don't need this gate.
+    if not self.isBank and not self.isMail then
+        if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
+    end
+
     addon:Debug("OnEnter FIRED: button=%s CursorHasItem=%s", tostring(self:GetName()), tostring(CursorHasItem and CursorHasItem()))
 
     -- Belt-and-suspenders: even though OnLoad nils OnUpdate / updateTooltip /

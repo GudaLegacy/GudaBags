@@ -1902,6 +1902,7 @@ function BagFrame:UpdateBagSlotsInfo(bagData, isOtherChar)
 		if not infoFrame.tooltipSetup then
 			infoFrame:EnableMouse(true)
 			infoFrame:SetScript("OnEnter", function()
+				if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
 				GameTooltip:SetOwner(this, "ANCHOR_TOP")
 				GameTooltip:AddLine(Guda_L["Bag Slots"], 1, 1, 1)
 				GameTooltip:AddLine(" ")
@@ -2046,6 +2047,7 @@ function BagFrame:CreateHearthstoneFrame()
 	frame:SetAttribute("type", "item")
 
 	frame:SetScript("OnEnter", function()
+		if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
 		BagFrame:ShowHearthstoneTooltip(this)
 	end)
 	frame:SetScript("OnLeave", function()
@@ -2246,6 +2248,7 @@ function BagFrame:CreateDisenchantFrame()
 	frame:SetAttribute("type", "spell")
 
 	frame:SetScript("OnEnter", function()
+		if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
 		GameTooltip:SetOwner(this, "ANCHOR_TOP")
 		GameTooltip:ClearLines()
 		GameTooltip:AddLine("Disenchant", 1, 1, 1)
@@ -2357,6 +2360,7 @@ function BagFrame:CreateLockpickFrame()
 	frame:SetAttribute("type", "spell")
 
 	frame:SetScript("OnEnter", function()
+		if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
 		GameTooltip:SetOwner(this, "ANCHOR_TOP")
 		GameTooltip:ClearLines()
 		GameTooltip:AddLine(Guda_L["Lockpicking"], 1, 1, 1)
@@ -3042,6 +3046,7 @@ end
 
 -- Money tooltip handler (BagFrame entry point)
 function Guda_BagFrame_MoneyOnEnter(self)
+	if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
 	Guda_MoneyTooltip_Show(self)
 end
 
@@ -4354,6 +4359,7 @@ end
 
 -- OnEnter handler for tooltip
 function Guda_BagSlot_OnEnter(button, bagID)
+	if not Guda_BagFrame or not Guda_BagFrame:IsShown() then return end
 	GameTooltip:SetOwner(button, "ANCHOR_TOP")
 
 	if bagID == 0 then
