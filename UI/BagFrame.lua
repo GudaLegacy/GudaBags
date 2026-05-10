@@ -296,6 +296,15 @@ function Guda_BagFrame_OnHide(self)
 	-- Play bag close sound
 	PlaySound("igBackPackClose")
 
+	-- Cancel any pending debounced anchor reposition. Without this, a
+	-- rapid open→close toggle (e.g. double-click shift+B) leaves the
+	-- 100ms timer running; it then fires after OnHide and restores
+	-- anchor:SetAlpha(1), so the footer pops back into view even though
+	-- bags are hidden.
+	if BagFrame.CancelHearthstoneAnchorReposition then
+		BagFrame:CancelHearthstoneAnchorReposition()
+	end
+
 	-- Fade the hearthstone anchor to invisible (non-protected op; safe in
 	-- combat). Its parent-chain independence from Guda_BagFrame is what
 	-- lets the bag frame itself toggle in combat.
@@ -2136,8 +2145,12 @@ function BagFrame:ScheduleHearthstoneAnchorReposition()
 			this:Hide()
 			this.elapsed = 0
 			BagFrame:UpdateHearthstoneAnchorPosition()
-			-- Restore visibility unless combat owns the alpha-0 state.
-			if not (InCombatLockdown and InCombatLockdown()) then
+			-- Restore visibility only if bags are still shown AND we're
+			-- out of combat. OnHide cancels this schedule, but a defense-
+			-- in-depth check prevents the footer from popping into view
+			-- if any future code path forgets to cancel.
+			if Guda_BagFrame and Guda_BagFrame:IsShown()
+				and not (InCombatLockdown and InCombatLockdown()) then
 				local anchor = getglobal("Guda_HearthstoneAnchor")
 				if anchor then anchor:SetAlpha(1) end
 			end
