@@ -310,6 +310,34 @@ L["Name:"] = "Name:"
 L["Match Mode:"] = "Match Mode:"
 L["Rules:"] = "Rules:"
 
+-- Group headers
+L["Main"] = "Main"
+L["Class"] = "Class"
+L["Other"] = "Other"
+
+-- Category Names
+L["BoE"] = "BoE"
+L["Weapon"] = "Weapon"
+L["Armor"] = "Armor"
+L["Trinket"] = "Trinket"
+L["Consumable"] = "Consumable"
+L["Food"] = "Food"
+L["Drink"] = "Drink"
+L["Trade Goods"] = "Trade Goods"
+L["Reagent"] = "Reagent"
+L["Recipe"] = "Recipe"
+L["Quiver"] = "Quiver"
+L["Container"] = "Container"
+L["Soul Bag"] = "Soul Bag"
+L["Miscellaneous"] = "Miscellaneous"
+L["Quest"] = "Quest"
+L["Junk"] = "Junk"
+L["Class Items"] = "Class Items"
+L["Keyring"] = "Keyring"
+L["Home"] = "Home"
+L["Tools"] = "Tools"
+L["Empty"] = "Empty"
+
 -- ============================================================================
 -- Item subType strings (locale-specific) used by Sorting/SortEngine and
 -- Core/Utils.lua to identify specialized bags and projectiles WITHOUT relying
@@ -337,6 +365,11 @@ Guda_LSubtypes = {
     esES = {
         quiver  = "Carcaj",        ammo    = "Bolsa de munición",
         soul    = "Bolsa de almas",herb    = "Bolsa de hierbas",     enchant = "Bolsa de encantamiento",
+        arrow   = "Flecha",        bullet  = "Bala",
+    },
+    ptBR = {
+        quiver  = "Aljava",        ammo    = "Bolsa de Munição",
+        soul    = "Bolsa de Almas",herb    = "Bolsa de Ervas",   enchant = "Bolsa de Encantamento",
         arrow   = "Flecha",        bullet  = "Bala",
     },
     zhCN = {
@@ -629,6 +662,34 @@ if locale == "zhCN" then
     L["Match Mode:"] = "匹配模式:"
     L["Rules:"] = "规则:"
 
+    -- Group headers
+    L["Main"] = "主要"
+    L["Class"] = "职业"
+    L["Other"] = "其他"
+
+    -- Category Names
+    L["BoE"] = "装绑"
+    L["Weapon"] = "武器"
+    L["Armor"] = "护甲"
+    L["Trinket"] = "饰品"
+    L["Consumable"] = "消耗品"
+    L["Food"] = "食物"
+    L["Drink"] = "饮料"
+    L["Trade Goods"] = "商品"
+    L["Reagent"] = "材料"
+    L["Recipe"] = "配方"
+    L["Quiver"] = "箭袋"
+    L["Container"] = "容器"
+    L["Soul Bag"] = "灵魂袋"
+    L["Miscellaneous"] = "杂项"
+    L["Quest"] = "任务"
+    L["Junk"] = "垃圾"
+    L["Class Items"] = "职业物品"
+    L["Keyring"] = "钥匙链"
+    L["Home"] = "炉石"
+    L["Tools"] = "工具"
+    L["Empty"] = "空格"
+
 elseif locale == "esES" then
     -- Spanish
 
@@ -884,6 +945,333 @@ elseif locale == "esES" then
     L["Name:"] = "Nombre:"
     L["Match Mode:"] = "Modo de coincidencia:"
     L["Rules:"] = "Reglas:"
+
+    -- Group headers
+    L["Main"] = "Principal"
+    L["Class"] = "Clase"
+    L["Other"] = "Otros"
+
+    -- Category Names
+    L["BoE"] = "Se liga al equipar"
+    L["Weapon"] = "Armas"
+    L["Armor"] = "Armadura"
+    L["Trinket"] = "Abalorios"
+    L["Consumable"] = "Consumibles"
+    L["Food"] = "Comida"
+    L["Drink"] = "Bebida"
+    L["Trade Goods"] = "Objetos comerciables"
+    L["Reagent"] = "Componentes"
+    L["Recipe"] = "Recetas"
+    L["Quiver"] = "Carcajs"
+    L["Container"] = "Contenedores"
+    L["Soul Bag"] = "Bolsas de almas"
+    L["Miscellaneous"] = "Miscelánea"
+    L["Quest"] = "Misión"
+    L["Junk"] = "Basura"
+    L["Class Items"] = "Objetos de clase"
+    L["Keyring"] = "Llavero"
+    L["Home"] = "Hogar"
+    L["Tools"] = "Herramientas"
+    L["Empty"] = "Vacío"
+
+elseif locale == "frFR" then
+    -- French
+
+    L["Auto Loot"] = "Fouille automatique"
+    L["Automatically loot all items when looting a corpse or container."] = "Ramasse automatiquement tous les objets lors de la fouille d'un corps ou d'un conteneur."
+    L["Auto Loot requires the SuperWoW client mod. Install SuperWoW to enable this option."] = "La fouille automatique nécessite le mod client SuperWoW. Installez SuperWoW pour activer cette option, ou appliquez le tweak du lanceur 'Always auto-loot' (le client ramassera automatiquement indépendamment de cet addon)."
+    L["Auto Open Clams"] = "Ouverture auto des palourdes"
+    L["Automatically open clams in your bags when you loot one."] = "Ouvre automatiquement les palourdes dans vos sacs lorsque vous en ramassez une."
+    L["/guda openclams - Open all clams in bags"] = "/guda openclams - Ouvrir toutes les palourdes dans les sacs"
+    L["Opening clams..."] = "Ouverture des palourdes..."
+    L["No clams found in your bags."] = "Aucune palourde trouvée dans vos sacs."
+    L["No more clams to open."] = "Plus de palourdes à ouvrir."
+    L["Clam opener is already running."] = "L'ouvreur de palourdes est déjà en cours d'exécution."
+    L["Clam opener stopped: %s"] = "Ouvreur de palourdes arrêté : %s"
+
+    -- Init / lifecycle
+    L["Initializing..."] = "Initialisation..."
+    L["Initializing UI..."] = "Initialisation de l'interface..."
+    L["Ready! Type /guda to open bags"] = "Prêt ! Tapez /guda pour ouvrir les sacs"
+    L["Scanning equipped items..."] = "Analyse des objets équipés..."
+    L["Equipped items scanned and saved!"] = "Objets équipés analysés et enregistrés !"
+
+    -- Slash command help
+    L["Commands:"] = "Commandes :"
+    L["/guda - Toggle bags"] = "/guda - Afficher/masquer les sacs"
+    L["/guda bank - Toggle bank"] = "/guda bank - Afficher/masquer la banque"
+    L["/guda mail - Toggle mailbox"] = "/guda mail - Afficher/masquer la boîte aux lettres"
+    L["/guda settings - Open settings"] = "/guda settings - Ouvrir les paramètres"
+    L["/guda sort - Sort bags"] = "/guda sort - Trier les sacs"
+    L["/guda sortbank - Sort bank"] = "/guda sortbank - Trier la banque"
+    L["/guda track - Toggle item tracking"] = "/guda track - Basculer le suivi des objets"
+    L["/guda debug - Toggle debug mode"] = "/guda debug - Basculer le mode débogage"
+    L["/guda debugsort - Toggle sort debug output"] = "/guda debugsort - Basculer le débogage du tri"
+    L["/guda cleanup - Remove old characters"] = "/guda cleanup - Supprimer les anciens personnages"
+    L["/guda perf - Show performance stats"] = "/guda perf - Afficher les stats de performance"
+    L["/guda perfreset - Reset performance stats"] = "/guda perfreset - Réinitialiser les stats"
+    L["/guda poolreset - Reset button pool (debug)"] = "/guda poolreset - Réinitialiser le pool de boutons (debug)"
+    L["Unknown command. Type /guda help for commands"] = "Commande inconnue. Tapez /guda help pour afficher les commandes"
+    L["Debug mode: %s"] = "Mode débogage : %s"
+    L["Debug sort mode: %s"] = "Mode débogage du tri : %s"
+    L["Debug category mode: %s"] = "Mode débogage des catégories : %s"
+    L["Quest bar: %s"] = "Barre de quêtes : %s"
+    L["ON"] = "ACTIVÉ"
+    L["OFF"] = "DÉSACTIVÉ"
+    L["Settings window not available"] = "Fenêtre des paramètres indisponible"
+    L["Performance stats not available"] = "Statistiques de performance indisponibles"
+    L["Performance stats reset"] = "Statistiques de performance réinitialisées"
+    L["Cannot reset pool while bag/bank frames are open. Close them first."] = "Impossible de réinitialiser le pool pendant que les sacs/la banque sont ouverts. Fermez-les d'abord."
+    L["Button pool reset. Pool is now empty."] = "Pool de boutons réinitialisé. Le pool est vide."
+    L["Button pool reset function not available."] = "Fonction de réinitialisation du pool indisponible."
+
+    -- Bag/Bank/Mail frame chrome
+    L["%s's Bags"] = "Sacs de %s"
+    L["%s's Bank"] = "Banque de %s"
+    L["%s's Mailbox"] = "Courrier de %s"
+    L["Bank"] = "Banque"
+    L["Backpack"] = "Sac à dos"
+    L["Keyring"] = "Trousseau de clés"
+    L["Bag %d"] = "Sac %d"
+    L["Bag Slots"] = "Emplacements de sac"
+    L["Bank Bag Slot %d"] = "Emplacement de sac de banque %d"
+    L["Search, try ~equipment"] = "Rechercher, essayez ~equipment"
+    L["Search bank..."] = "Rechercher dans la banque..."
+    L["Search mailbox..."] = "Rechercher dans le courrier..."
+    L["Use Guda Bank UI"] = "Utiliser l'interface de banque Guda"
+    L["Switched to Guda bank UI"] = "Passé à l'interface de banque Guda"
+    L["No Mail"] = "Aucun courrier"
+    L["No mailbox data found for this character.\n\nVisit a mailbox in-game to save your mail data."] = "Aucune donnée de boîte aux lettres pour ce personnage.\n\nVisitez une boîte aux lettres en jeu pour enregistrer vos données."
+    L["Current realm gold"] = "Or du royaume actuel"
+    L["Total gold"] = "Or total"
+    L["Settings"] = "Paramètres"
+    L["Sort Bags"] = "Trier les sacs"
+    L["Lockpicking"] = "Crochetage"
+    L["Click to cast Pick Lock"] = "Cliquez pour lancer Crochetage"
+    L["Requires Thieves' Tools"] = "Nécessite des Outils de voleur"
+    L["My Characters"] = "Mes personnages"
+    L["View Bank"] = "Voir la banque"
+    L["View Mailbox"] = "Voir le courrier"
+    L["Right-click to manage characters"] = "Clic droit pour gérer les personnages"
+    L["(Right-Click to hide)"] = "(Clic droit pour masquer)"
+    L["%d Slots"] = "%d emplacements"
+    L["Regular Bags:"] = "Sacs normaux :"
+    L["Sort Bank"] = "Trier la banque"
+    L["Use Blizzard Bank UI"] = "Utiliser l'interface de banque Blizzard"
+
+    -- Sort / sell prints
+    L["Cannot sort another character's bags!"] = "Impossible de trier les sacs d'un autre personnage !"
+    L["Cannot sort in read-only mode!"] = "Impossible de trier en mode lecture seule !"
+    L["Bags are already sorted!"] = "Les sacs sont déjà triés !"
+    L["Bank is already sorted!"] = "La banque est déjà triée !"
+    L["Bank must be open to sort!"] = "La banque doit être ouverte pour trier !"
+    L["Sorting already in progress, please wait..."] = "Tri déjà en cours, veuillez patienter..."
+    L["Restacked %d stack(s)"] = "%d pile(s) réempilée(s)"
+    L["Sold %d junk item(s)"] = "%d objet(s) inutile(s) vendu(s)"
+    L["Bag replaced successfully!"] = "Sac remplacé avec succès !"
+    L["Cannot replace bag: another replacement is in progress."] = "Impossible de remplacer le sac : un autre remplacement est en cours."
+    L["Cannot replace bag while sorting is in progress."] = "Impossible de remplacer le sac pendant le tri."
+    L["Cannot replace bag during combat."] = "Impossible de remplacer le sac en combat."
+
+    -- Item-button protection prints
+    L["Cannot sell %s — item is protected"] = "Impossible de vendre %s — objet protégé"
+    L["Cannot disenchant %s — item is protected"] = "Impossible de désenchanter %s — objet protégé"
+    L["Cannot delete %s — item is protected"] = "Impossible de supprimer %s — objet protégé"
+    L["Slot pinned %s (skipped during sort)"] = "Emplacement épinglé %s (ignoré lors du tri)"
+    L["Slot unpinned %s"] = "Emplacement désépinglé %s"
+    L["%s set protection removed"] = "Protection d'ensemble retirée pour %s"
+    L["%s set protection restored"] = "Protection d'ensemble restaurée pour %s"
+    L["%s locked"] = "%s verrouillé"
+    L["%s unlocked"] = "%s déverrouillé"
+
+    -- Quest item bar
+    L["Item is not currently in your bags (loading from database)."] = "L'objet n'est pas dans vos sacs (chargement depuis la base de données)."
+
+    -- Tooltip integration
+    L["Inventory"] = "Inventaire"
+    L["Other Accounts"] = "Autres comptes"
+    L["Total"] = "Total"
+    L["Bags"] = "Sacs"
+    L["Mail"] = "Courrier"
+    L["Equipped"] = "Équipé"
+
+    -- SharedData
+    L["Imported %d character(s) from other accounts"] = "%d personnage(s) importé(s) d'autres comptes"
+
+    -- Performance stats
+    L["=== Guda Performance Stats ==="] = "=== Statistiques de performance Guda ==="
+    L["Frame Budget: %.0fms"] = "Budget d'image : %.0fms"
+    L["Last Update: %.1fms"] = "Dernière mise à jour : %.1fms"
+    L["Total Updates: %d"] = "Mises à jour totales : %d"
+    L["Budget Exceeded: %d times"] = "Budget dépassé : %d fois"
+
+    -- Settings popup
+    L["Guda Settings"] = "Paramètres de Guda"
+    L["Appearance"] = "Apparence"
+    L["Options"] = "Options"
+    L["Automation"] = "Automatisation"
+    L["View"] = "Affichage"
+    L["Columns"] = "Colonnes"
+    L["Icon"] = "Icône"
+    L["Icon Options"] = "Options des icônes"
+    L["Quest Bar"] = "Barre de quêtes"
+    L["Tracked"] = "Suivi"
+    L["Theme"] = "Thème"
+    L["Bag View"] = "Vue des sacs"
+    L["Bank View"] = "Vue de la banque"
+    L["Bag columns"] = "Colonnes des sacs"
+    L["Bank columns"] = "Colonnes de la banque"
+    L["Background Transparency"] = "Transparence du fond"
+    L["Icon size"] = "Taille des icônes"
+    L["Icon font size"] = "Taille de police des icônes"
+    L["Icon spacing"] = "Espacement des icônes"
+    L["Quest bar size"] = "Taille de barre de quêtes"
+    L["Tracked bar size"] = "Taille de barre de suivi"
+    L["Junk item opacity"] = "Opacité des objets inutiles"
+    L["Lock Window"] = "Verrouiller la fenêtre"
+    L["Hide Frame Borders"] = "Masquer les bordures"
+    L["Equipment Borders"] = "Bordures d'équipement"
+    L["Other Item Borders"] = "Bordures des autres objets"
+    L["Show Search Bar"] = "Afficher la barre de recherche"
+    L["Show Quest Bar"] = "Afficher la barre de quêtes"
+    L["Show All Bags"] = "Afficher tous les sacs"
+    L["Hide Footer"] = "Masquer le pied de page"
+    L["Mark Unusable Items"] = "Marquer les objets inutilisables"
+    L["Equip Set Categories"] = "Catégories d'ensembles d'équipement"
+    L["Mark Equipment Sets"] = "Marquer les ensembles d'équipement"
+    L["Auto Lock Set Items"] = "Verrouiller auto les ensembles"
+    L["Show Category Count"] = "Afficher le nombre par catégorie"
+    L["Auto Sell Junk"] = "Vente auto de camelote"
+    L["Auto Open Bags"] = "Ouverture auto des sacs"
+    L["Auto Close Bags"] = "Fermeture auto des sacs"
+    L["White Items as Junk"] = "Objets blancs comme camelote"
+    L["ElvUI Transparency"] = "Transparence ElvUI"
+    L["Reverse Stack Sort"] = "Tri inversé des piles"
+    L["Sort Right to Left"] = "Trier de droite à gauche"
+    L["Sort bags from right to left instead of left to right"] = "Trie les sacs de droite à gauche au lieu de gauche à droite."
+    L["Edit"] = "Modifier"
+    L["Save"] = "Enregistrer"
+    L["Cancel"] = "Annuler"
+    L["+ Add Category"] = "+ Ajouter catégorie"
+    L["+ Add Rule"] = "+ Ajouter règle"
+    L["Reset Defaults"] = "Réinitialiser"
+    L["Select Type"] = "Choisir le type"
+    L["Select Value"] = "Choisir la valeur"
+    L["Tracking Items:"] = "Objets suivis :"
+    L["Locked Items:"] = "Objets verrouillés :"
+    L["Pin Slot:"] = "Épingler un emplacement :"
+    L["Moving Bars:"] = "Déplacer les barres :"
+    L["Merge"] = "Fusionner"
+    L["Group:"] = "Groupe :"
+    L["Mark:"] = "Marque :"
+    L["Any rule"] = "N'importe quelle règle"
+    L["All rules"] = "Toutes les règles"
+    L["Required rule"] = "Règle requise"
+    L["Required rule tooltip"] = "Épinglez une règle pour la rendre requise. En mode 'N'importe quelle règle', TOUTES les règles requises doivent correspondre ET au moins une règle non requise également. Sans effet en mode 'Toutes les règles'."
+    L["Edit Category (Built-in)"] = "Modifier la catégorie (intégrée)"
+    L["Edit Category"] = "Modifier la catégorie"
+    L["Rules (%d/%d):"] = "Règles (%d/%d) :"
+
+    -- Settings tab labels
+    L["General"] = "Général"
+    L["Layout"] = "Disposition"
+    L["Icons"] = "Icônes"
+    L["Bar"] = "Barre"
+    L["Categories"] = "Catégories"
+    L["Guide"] = "Guide"
+
+    -- Slider value-display formats
+    L["Bag columns: %d"] = "Colonnes des sacs : %d"
+    L["Bank columns: %d"] = "Colonnes de la banque : %d"
+    L["Background Transparency: %d%%"] = "Transparence du fond : %d%%"
+    L["Icon size: %dpx"] = "Taille des icônes : %dpx"
+    L["Icon font size: %dpx"] = "Taille de police : %dpx"
+    L["Icon spacing: %s"] = "Espacement des icônes : %s"
+    L["Quest bar size: %dpx"] = "Taille de barre de quêtes : %dpx"
+    L["Tracked bar size: %dpx"] = "Taille de barre de suivi : %dpx"
+    L["Junk item opacity: %d%%"] = "Opacité de la camelote : %d%%"
+
+    -- Tooltip extension
+    L["Show Item Counts in Tooltip"] = "Afficher le nombre dans l'infobulle"
+    L["Tooltip Extension"] = "Extension d'infobulle"
+    L["Show how many of this item you have across all your characters in the item tooltip."] = "Affiche dans l'infobulle la quantité de cet objet possédée sur tous vos personnages."
+
+    -- Settings tooltip text
+    L["Lock the bag frames in place so they cannot be moved by dragging."] = "Verrouille les fenêtres de sacs pour qu'elles ne puissent pas être déplacées."
+    L["Hide the thick borders around the bag and bank frames for a cleaner look."] = "Masque les bordures épaisses des fenêtres pour un style plus épuré."
+    L["Show a color-coded border around equipped items based on their quality (Common, Rare, Epic, etc.)."] = "Affiche une bordure colorée autour des objets équipés selon leur qualité (Ordinaire, Rare, Épique, etc.)."
+    L["Show a color-coded border around non-equipped items in your bags and bank based on their quality."] = "Affiche une bordure colorée autour des objets non équipés selon leur qualité."
+    L["Show a search bar at the top of your bags to quickly find items."] = "Affiche une barre de recherche en haut des sacs pour trouver rapidement des objets."
+    L["Show a bar for quickly accessing quest-related items."] = "Affiche une barre d'accès rapide aux objets de quête."
+    L["Minimizes the bag container to show only the main bag and keyring. Hover over the main bag to view the other bags."] = "Minimise le conteneur pour n'afficher que le sac principal et le trousseau. Survolez le sac principal pour voir les autres."
+    L["Hides bag slots 1-4 from the footer. Click the main bag to show a flyout with all bag slots."] = "Masque les emplacements 1 à 4 du pied de page. Cliquez sur le sac principal pour afficher un menu déroulant."
+    L["Hide the bottom section of the bag frame containing money and bag slots."] = "Masque la section inférieure contenant l'or et les emplacements de sac."
+    L["Show a red tint on items that your character cannot use (wrong class, level, etc.)."] = "Applique une teinte rouge sur les objets que votre personnage ne peut pas utiliser (mauvaise classe, niveau requis, etc.)."
+    L["Show equipment set categories in category view."] = "Affiche les catégories d'ensembles d'équipement dans la vue par catégories."
+    L["Show a special icon on items that belong to an equipment set."] = "Affiche une icône spéciale sur les objets faisant partie d'un ensemble d'équipement."
+    L["Prevent selling and deleting items saved in equipment sets."] = "Empêche la vente et la suppression des objets enregistrés dans des ensembles d'équipement."
+    L["Show the item count next to each category header in category view."] = "Affiche le nombre d'objets à côté de chaque titre de catégorie."
+    L["Automatically sell gray (junk) items when you visit a vendor."] = "Vend automatiquement les objets gris (camelote) lorsque vous visitez un marchand."
+    L["Automatically open bags when interacting with bank, auction house, mail, or trade."] = "Ouvre automatiquement les sacs lors de l'interaction avec la banque, l'hôtel des ventes, le courrier ou l'échange."
+    L["Automatically close bags when closing bank, auction house, mail, trade, or vendor."] = "Ferme automatiquement les sacs lors de la fermeture de la banque, l'hôtel des ventes, du courrier, de l'échange ou d'un marchand."
+    L["Treat white (common) equippable items as junk. They will be dimmed and auto-sold if auto-sell is enabled."] = "Traite les objets équipables blancs (courants) comme de la camelote. Ils seront estompés et vendus automatiquement si l'option est active."
+    L["When enabled, uses ElvUI's backdrop transparency instead of the slider below."] = "Si activé, utilise la transparence de fond d'ElvUI au lieu du curseur ci-dessous."
+    L["When enabled, smaller stacks of the same item will be sorted before larger stacks (e.g., stack of 16 before stack of 20)."] = "Si activé, les plus petites piles d'un même objet seront triées avant les plus grandes (ex. : pile de 16 avant pile de 20)."
+
+    -- Categories tab + Guide tab
+    L["GUIDE_TEXT"] = "|cffffd100Suivi d'objets :|r\n" ..
+        "Alt + Clic gauche sur un objet dans vos sacs pour le suivre.\n" ..
+        "Les objets suivis apparaîtront dans la barre d'objets suivis.\n" ..
+        "Clic gauche sur un objet dans la barre pour l'utiliser.\n" ..
+        "Alt + Clic gauche sur un objet dans la barre pour annuler son suivi.\n\n" ..
+        "|cffffd100Objets verrouillés :|r\n" ..
+        "Ctrl + Clic droit sur un objet pour le verrouiller/déverrouiller.\n" ..
+        "Les objets verrouillés ne peuvent pas être vendus, supprimés ou désenchantés.\n" ..
+        "Les objets d'ensemble d'équipement sont automatiquement protégés.\n" ..
+        "Ctrl + Clic droit sur un objet d'ensemble pour basculer sa protection.\n" ..
+        "Une icône de cadenas apparaît dans le coin inférieur droit.\n\n" ..
+        "|cffffd100Épingler un emplacement :|r\n" ..
+        "Alt + Clic droit sur un emplacement pour l'épingler/le désépingler.\n" ..
+        "Les emplacements épinglés sont ignorés lors du tri.\n" ..
+        "L'épingle reste attachée à l'emplacement, pas à l'objet.\n" ..
+        "Une icône d'épingle apparaît dans le coin supérieur gauche.\n\n" ..
+        "|cffffd100Déplacer les barres :|r\n" ..
+        "Maj + Clic gauche et glisser sur n'importe quel objet de la barre de quêtes ou de suivi pour déplacer la barre.\n"
+
+    L["Manage item categories and their display order:"] = "Gérer les catégories d'objets et leur ordre d'affichage :"
+    L["(Built-in)"] = "(Intégrée)"
+    L["(Drop Item)"] = "(Déposer objet)"
+    L["Name:"] = "Nom :"
+    L["Match Mode:"] = "Mode de correspondance :"
+    L["Rules:"] = "Règles :"
+
+    -- Group headers
+    L["Main"] = "Principal"
+    L["Class"] = "Classe"
+    L["Other"] = "Autre"
+
+    -- Category Names
+    L["BoE"] = "Lié quand équipé"
+    L["Weapon"] = "Armes"
+    L["Armor"] = "Armure"
+    L["Trinket"] = "Bijoux"
+    L["Consumable"] = "Consommables"
+    L["Food"] = "Nourriture"
+    L["Drink"] = "Boisson"
+    L["Trade Goods"] = "Artisanat"
+    L["Reagent"] = "Composants"
+    L["Recipe"] = "Recettes"
+    L["Quiver"] = "Carquois"
+    L["Container"] = "Sacs"
+    L["Soul Bag"] = "Sacs d'âmes"
+    L["Miscellaneous"] = "Divers"
+    L["Quest"] = "Quêtes"
+    L["Junk"] = "Camelote"
+    L["Class Items"] = "Objets de classe"
+    L["Keyring"] = "Trousseau de clés"
+    L["Home"] = "Foyer"
+    L["Tools"] = "Outils"
+    L["Empty"] = "Vide"
 
 elseif locale == "ptBR" then
     -- Portuguese (Brazilian)
@@ -1141,6 +1529,34 @@ elseif locale == "ptBR" then
     L["Match Mode:"] = "Modo de correspondência:"
     L["Rules:"] = "Regras:"
 
+    -- Group headers
+    L["Main"] = "Principal"
+    L["Class"] = "Classe"
+    L["Other"] = "Outros"
+
+    -- Category Names
+    L["BoE"] = "Vincula ao Equipar"
+    L["Weapon"] = "Armas"
+    L["Armor"] = "Armadura"
+    L["Trinket"] = "Berloques"
+    L["Consumable"] = "Consumíveis"
+    L["Food"] = "Comida"
+    L["Drink"] = "Bebida"
+    L["Trade Goods"] = "Itens de Comércio"
+    L["Reagent"] = "Reagentes"
+    L["Recipe"] = "Receitas"
+    L["Quiver"] = "Aljaves"
+    L["Container"] = "Recipientes"
+    L["Soul Bag"] = "Bolsas de Almas"
+    L["Miscellaneous"] = "Diversos"
+    L["Quest"] = "Missão"
+    L["Junk"] = "Lixo"
+    L["Class Items"] = "Itens de Classe"
+    L["Keyring"] = "Chaveiro"
+    L["Home"] = "Casa"
+    L["Tools"] = "Ferramentas"
+    L["Empty"] = "Vazio"
+
 elseif locale == "deDE" then
     -- German
 
@@ -1397,6 +1813,34 @@ elseif locale == "deDE" then
     L["Match Mode:"] = "Übereinstimmungsmodus:"
     L["Rules:"] = "Regeln:"
 
+    -- Group headers
+    L["Main"] = "Haupt"
+    L["Class"] = "Klasse"
+    L["Other"] = "Sonstige"
+
+    -- Category Names
+    L["BoE"] = "BoE"
+    L["Weapon"] = "Waffen"
+    L["Armor"] = "Rüstung"
+    L["Trinket"] = "Schmuck"
+    L["Consumable"] = "Verbrauchbar"
+    L["Food"] = "Essen"
+    L["Drink"] = "Trinken"
+    L["Trade Goods"] = "Handwerkswaren"
+    L["Reagent"] = "Reagenzien"
+    L["Recipe"] = "Rezepte"
+    L["Quiver"] = "Köcher"
+    L["Container"] = "Behälter"
+    L["Soul Bag"] = "Seelentaschen"
+    L["Miscellaneous"] = "Verschiedenes"
+    L["Quest"] = "Quest"
+    L["Junk"] = "Müll"
+    L["Class Items"] = "Klassengegenstände"
+    L["Keyring"] = "Schlüsselbund"
+    L["Home"] = "Heimat"
+    L["Tools"] = "Werkzeuge"
+    L["Empty"] = "Leer"
+
 elseif locale == "ruRU" then
     -- Russian
 
@@ -1652,6 +2096,56 @@ elseif locale == "ruRU" then
     L["Name:"] = "Имя:"
     L["Match Mode:"] = "Режим совпадения:"
     L["Rules:"] = "Правила:"
+    -- Названия категорий
+    L["BoE"] = "BoE"
+    L["Weapon"] = "Оружие"
+    L["Armor"] = "Доспехи"
+    L["Trinket"] = "Аксессуары"
+    L["Consumable"] = "Расходные"
+    L["Food"] = "Еда"
+    L["Drink"] = "Питье"
+    L["Trade Goods"] = "Хозяйственные товары"
+    L["Reagent"] = "Реагенты"
+    L["Recipe"] = "Рецепты"
+    L["Quiver"] = "Колчаны"
+    L["Container"] = "Сумки"
+    L["Soul Bag"] = "Сумки для душ"
+    L["Miscellaneous"] = "Разное"
+    L["Quest"] = "Задания"
+    L["Junk"] = "Хлам"
+    L["Class Items"] = "Классовые предметы"
+    L["Keyring"] = "Связка ключей"
+    L["Home"] = "Дом"
+    L["Tools"] = "Инструменты"
+    L["Empty"] = "Пусто"
+    
+    -- Group headers
+    L["Main"] = "Основные"
+    L["Class"] = "Классовые"
+    L["Other"] = "Другие"
+
+    -- Category Names
+    L["BoE"] = "BoE"
+    L["Weapon"] = "Оружие"
+    L["Armor"] = "Доспехи"
+    L["Trinket"] = "Аксессуары"
+    L["Consumable"] = "Расходные"
+    L["Food"] = "Еда"
+    L["Drink"] = "Питье"
+    L["Trade Goods"] = "Хозяйственные товары"
+    L["Reagent"] = "Реагенты"
+    L["Recipe"] = "Рецепты"
+    L["Quiver"] = "Колчаны"
+    L["Container"] = "Сумки"
+    L["Soul Bag"] = "Сумки для душ"
+    L["Miscellaneous"] = "Разное"
+    L["Quest"] = "Задания"
+    L["Junk"] = "Хлам"
+    L["Class Items"] = "Классовые предметы"
+    L["Keyring"] = "Связка ключей"
+    L["Home"] = "Дом"
+    L["Tools"] = "Инструменты"
+    L["Empty"] = "Пусто"
 
 end
 

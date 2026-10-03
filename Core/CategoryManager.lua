@@ -6,6 +6,36 @@ local addon = Guda
 local CategoryManager = {}
 addon.Modules.CategoryManager = CategoryManager
 
+-- Building a type mapping table in any client language via the WoW API
+local EnglishTypeIndex = {
+    [1]  = "Weapon",
+    [2]  = "Armor",
+    [3]  = "Container",
+    [4]  = "Consumable",
+    [5]  = "Trade Goods",
+    [6]  = "Projectile",
+    [7]  = "Quiver",
+    [8]  = "Recipe",
+    [9]  = "Reagent",
+    [10] = "Miscellaneous",
+    [11] = "Key",
+    [12] = "Quest",
+}
+
+local LocalToEnglishType = {}
+
+local function BuildLocaleTypeMap()
+    if GetAuctionItemClasses then
+        local classes = { GetAuctionItemClasses() }
+        for id, localizedName in ipairs(classes) do
+            local englishName = EnglishTypeIndex[id]
+            if englishName and localizedName then
+                LocalToEnglishType[localizedName] = englishName
+            end
+        end
+    end
+end
+
 --=====================================================
 -- Category Result Caching
 -- Caches CategorizeItem results to avoid repeated evaluations
@@ -355,6 +385,7 @@ end
 
 -- Initialize categories from database or defaults
 function CategoryManager:Initialize()
+    BuildLocaleTypeMap()
     if not Guda_CharDB then return end
 
     if not Guda_CharDB.categories then
@@ -638,6 +669,18 @@ function CategoryManager:GetCategory(categoryId)
     return nil
 end
 
+-- Get localized category display name
+function CategoryManager:GetCategoryDisplayName(categoryId)
+    local def = self:GetCategory(categoryId)
+    if not def then return categoryId or "" end
+    
+    local name = def.name or categoryId
+    if def.isBuiltIn and Guda_L and Guda_L[name] then
+        return Guda_L[name]
+    end
+    return name
+end
+
 -- Save categories to database
 function CategoryManager:SaveCategories(categories)
     if not Guda_CharDB then return end
@@ -879,11 +922,29 @@ function CategoryManager:EvaluateRule(rule, itemData, bagID, slotID, isOtherChar
     local ruleValue = rule.value
 
     if ruleType == "itemType" then
-        return (itemData.class == ruleValue) or (itemData.type == ruleValue)
+        local rawClass = itemData.class or itemData.type or ""
+        -- 1. If it matched directly (English client)
+        if rawClass == ruleValue then
+            return true
+        end
+
+        -- 2. If the client is in another language (dynamic matching via the auction API)
+        local resolvedEnglish = LocalToEnglishType[rawClass]
+        if resolvedEnglish and resolvedEnglish == ruleValue then
+            return true
+        end
+
+        return false
 
     elseif ruleType == "itemSubtype" then
         local subclass = itemData.subclass or ""
-        -- Check for partial match (e.g., "Food" matches "Food & Drink")
+        local loc = GetLocale and GetLocale() or "enUS"
+        local localizedSoulBag = Guda_LSubtypes and Guda_LSubtypes[loc] and Guda_LSubtypes[loc].soul
+
+        if ruleValue == "Soul Bag" and (subclass == "Soul Bag" or subclass == localizedSoulBag) then
+            return true
+        end
+
         if string.find(subclass, ruleValue) then
             return true
         end

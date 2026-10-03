@@ -1384,9 +1384,11 @@ function BagFrame:DisplayItemsByCategory(bagData, isOtherChar, charName)
         header:SetPoint("TOPLEFT", itemContainer, "TOPLEFT", startX + currentX, startY - currentY)
         header:SetWidth(blockWidth)
 
-        -- Get display name from category definition
+        -- Get display name from category definition (with localization support)
         local displayName = catName
-        if catDef and catDef.name then
+        if addon.Modules.CategoryManager and addon.Modules.CategoryManager.GetCategoryDisplayName then
+            displayName = addon.Modules.CategoryManager:GetCategoryDisplayName(catName)
+        elseif catDef and catDef.name then
             displayName = catDef.name
         end
 

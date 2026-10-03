@@ -873,7 +873,7 @@ function BankFrame:DisplayItemsByCategory(bankData, isOtherChar, charName)
                 headerIdx = headerIdx + 1
                 header:SetPoint("TOPLEFT", itemContainer, "TOPLEFT", startX + currentX, startY - currentY)
                 header:SetWidth(blockWidth)
-                local displayName = (catDef and catDef.name) or catName
+                local displayName = (addon.Modules.CategoryManager and addon.Modules.CategoryManager.GetCategoryDisplayName and addon.Modules.CategoryManager:GetCategoryDisplayName(catName)) or catName
                 header.fullName = displayName
                 header.isShortened = false
                 header.text:SetText(displayName)
@@ -932,7 +932,9 @@ function BankFrame:DisplayItemsByCategory(bankData, isOtherChar, charName)
             header:SetWidth(blockWidth)
 
             local displayName = catName
-            if catDef and catDef.name then
+            if addon.Modules.CategoryManager and addon.Modules.CategoryManager.GetCategoryDisplayName then
+                displayName = addon.Modules.CategoryManager:GetCategoryDisplayName(catName)
+            elseif catDef and catDef.name then
                 displayName = catDef.name
             end
 

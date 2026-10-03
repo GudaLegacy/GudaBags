@@ -2209,7 +2209,8 @@ function Guda_SettingsPopup_CategoriesTab_Update()
                     -- Show as group header row
                     row.categoryId = nil
                     row.groupName = entry.groupName
-                    row.nameText:SetText("|cffffd100-- " .. entry.groupName .. " --|r")
+                    local localizedGroup = Guda_L and Guda_L[entry.groupName] or entry.groupName
+                    row.nameText:SetText("|cffffd100-- " .. localizedGroup .. " --|r")
                     row.nameText:SetTextColor(1, 0.82, 0)
                     row.checkbox:Hide()
                     row.editBtn:Hide()
@@ -2231,7 +2232,11 @@ function Guda_SettingsPopup_CategoriesTab_Update()
 
                     row.categoryId = categoryId
                     row.groupName = nil
-                    row.nameText:SetText(categoryDef.name or categoryId)
+                    local displayName = categoryDef.name or categoryId
+                    if Guda.Modules.CategoryManager and Guda.Modules.CategoryManager.GetCategoryDisplayName then
+                        displayName = Guda.Modules.CategoryManager:GetCategoryDisplayName(categoryId)
+                    end
+                    row.nameText:SetText(displayName)
                     row.checkbox:Show()
                     row.checkbox:SetChecked(categoryDef.enabled and 1 or 0)
                     row.mergeCheckbox:Hide()
@@ -2606,7 +2611,11 @@ function Guda_CategoryEditor_Open(categoryId)
     -- Set name
     local nameBox = getglobal("Guda_CategoryEditor_NameEditBox")
     if nameBox then
-        nameBox:SetText(categoryDef.name or categoryId)
+        local displayName = categoryDef.name or categoryId
+        if categoryDef.isBuiltIn and Guda.Modules.CategoryManager and Guda.Modules.CategoryManager.GetCategoryDisplayName then
+            displayName = Guda.Modules.CategoryManager:GetCategoryDisplayName(categoryId)
+        end
+            nameBox:SetText(displayName)
         -- Disable name editing for built-in categories
         if categoryDef.isBuiltIn then
             nameBox:EnableMouse(false)
